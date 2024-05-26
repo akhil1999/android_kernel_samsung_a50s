@@ -49,12 +49,6 @@ u32 fimc_is_sensor_calculate_tgain(u32 dgain, u32 again)
 	return tgain;
 }
 
-u32 fimc_is_sensor_calculate_sensitivity_by_tgain(u32 tgain)
-{
-	/* ISO(sensitivity) 40 = gain 1x */
-	return (tgain * 40) / 1000;
-}
-
 u32 fimc_is_sensor_ctl_get_csi_vsync_cnt(struct fimc_is_device_sensor *device)
 {
 	struct fimc_is_device_csi *csi = NULL;
@@ -415,7 +409,7 @@ p_err:
 	return ret;
 }
 
-int fimc_is_sensor_ctl_update_gains(struct fimc_is_device_sensor *device,
+static int fimc_is_sensor_ctl_update_gains(struct fimc_is_device_sensor *device,
 				struct fimc_is_sensor_ctl *module_ctl,
 				u32 *dm_index,
 				struct ae_param adj_again,
@@ -515,6 +509,7 @@ static int fimc_is_sensor_ctl_adjust_exposure(struct fimc_is_device_sensor *devi
 	int ret = 0;
 	struct fimc_is_module_enum *module = NULL;
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
+	camera2_sensor_ctl_t *sensor_ctrl = NULL;
 
 	FIMC_BUG(!device);
 	FIMC_BUG(!module_ctl);
@@ -530,14 +525,19 @@ static int fimc_is_sensor_ctl_adjust_exposure(struct fimc_is_device_sensor *devi
 	FIMC_BUG(!module);
 
 	sensor_peri = (struct fimc_is_device_sensor_peri *)module->private_data;
+	sensor_ctrl = &module_ctl->cur_cam20_sensor_ctrl;
 
-	if (sensor_peri->sensor_interface.cis_mode == ITF_CIS_SMIA_WDR) {
-		expo->long_val = applied_ae_setting->long_exposure;
-		expo->short_val = applied_ae_setting->short_exposure;
-		expo->middle_val = applied_ae_setting->middle_exposure;
+	if (sensor_ctrl->exposureTime != 0 && module_ctl->valid_sensor_ctrl == true) {
+		expo->val = expo->short_val = fimc_is_sensor_convert_ns_to_us(sensor_ctrl->exposureTime);
 	} else {
-		expo->val = expo->short_val = applied_ae_setting->exposure;
-		expo->middle_val = 0;
+		if (sensor_peri->sensor_interface.cis_mode == ITF_CIS_SMIA_WDR) {
+			expo->long_val = applied_ae_setting->long_exposure;
+			expo->short_val = applied_ae_setting->short_exposure;
+			expo->middle_val = applied_ae_setting->middle_exposure;
+		} else {
+			expo->val = expo->short_val = applied_ae_setting->exposure;
+			expo->middle_val = 0;
+		}
 	}
 
 p_err:
@@ -564,7 +564,7 @@ static int fimc_is_sensor_ctl_set_exposure(struct fimc_is_device_sensor *device,
 	return ret;
 }
 
-int fimc_is_sensor_ctl_update_exposure(struct fimc_is_device_sensor *device,
+static int fimc_is_sensor_ctl_update_exposure(struct fimc_is_device_sensor *device,
 					u32 *dm_index,
 					struct ae_param expo)
 {
@@ -707,7 +707,7 @@ void fimc_is_sensor_ctl_frame_evt(struct fimc_is_device_sensor *device)
 		/* 3. set dynamic duration */
 		ctrl.id = V4L2_CID_SENSOR_ADJUST_FRAME_DURATION;
 		ctrl.value = 0;
-		ret = fimc_is_sensor_peri_adj_ctrl(device, MAX(expo.long_val,expo.short_val), &ctrl);
+		ret = fimc_is_sensor_peri_adj_ctrl(device, expo.long_val, &ctrl);
 		if (ret < 0)
 			err("err!!! ret(%d)", ret);
 
@@ -776,15 +776,6 @@ void fimc_is_sensor_ctl_frame_evt(struct fimc_is_device_sensor *device)
 	if (sensor_peri->subdev_flash != NULL && module_ctl->valid_flash_udctrl) {
 		/* Pre-Flash on, Torch on/off */
 		ret = fimc_is_sensor_peri_pre_flash_fire(device->subdev_module, &applied_frame_number);
-	}
-
-	if (sensor_peri->ois) {
-		ret = CALL_OISOPS(sensor_peri->ois, ois_set_mode, sensor_peri->subdev_ois, sensor_peri->ois->ois_mode);
-		if (ret < 0) {
-			err("[SEN:%d] v4l2_subdev_call(ois_mode_change, mode:%d) is fail(%d)",
-				module->sensor_id, sensor_peri->ois->ois_mode, ret);
-			goto p_err;
-		}
 	}
 
 	/* Warning! Aperture mode should be set before setting ois mode */

@@ -56,7 +56,7 @@ static bool sensor_3h1_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 	unsigned int mode = cis_data->sens_config_index_cur;
 
 	if (fimc_is_vender_wdr_mode_on(cis_data) &&
-		(mode == SENSOR_3H1_3280X2464_30FPS
+		(mode == SENSOR_3H1_3264X2448_30FPS
 		|| mode == SENSOR_3H1_2448X2448_30FPS
 		|| mode == SENSOR_3H1_3264X1836_30FPS
 		|| mode == SENSOR_3H1_3264X1592_30FPS))
@@ -64,6 +64,59 @@ static bool sensor_3h1_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 
 	return false;
 }
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static const struct cam_mipi_sensor_mode *sensor_3h1_mipi_sensor_mode;
+static u32 sensor_3h1_mipi_sensor_mode_size;
+static const int *sensor_3h1_verify_sensor_mode;
+static int sensor_3h1_verify_sensor_mode_size;
+
+static int sensor_3h1_cis_set_mipi_clock(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	struct fimc_is_cis *cis = NULL;
+	const struct cam_mipi_sensor_mode *cur_mipi_sensor_mode;
+	int mode = 0;
+
+	FIMC_BUG(!subdev);
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+
+	FIMC_BUG(!cis);
+	FIMC_BUG(!cis->cis_data);
+
+	mode = cis->cis_data->sens_config_index_cur;
+
+	dbg_sensor(1, "%s : mipi_clock_index_cur(%d), new(%d)\n", __func__,
+		cis->mipi_clock_index_cur, cis->mipi_clock_index_new);
+
+	if (mode >= sensor_3h1_mipi_sensor_mode_size) {
+		err("sensor mode is out of bound");
+		return -1;
+	}
+
+	if (cis->mipi_clock_index_cur != cis->mipi_clock_index_new
+		&& cis->mipi_clock_index_new >= 0) {
+		cur_mipi_sensor_mode = &sensor_3h1_mipi_sensor_mode[mode];
+
+		if (cur_mipi_sensor_mode->sensor_setting == NULL) {
+			dbg_sensor(1, "no mipi setting for current sensor mode\n");
+		} else if (cis->mipi_clock_index_new < cur_mipi_sensor_mode->sensor_setting_size) {
+			info("%s: change mipi clock [%d %d]\n", __func__, mode, cis->mipi_clock_index_new);
+			sensor_cis_set_registers(subdev,
+				cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].setting,
+				cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].setting_size);
+
+			cis->mipi_clock_index_cur = cis->mipi_clock_index_new;
+		} else {
+			err("sensor setting index is out of bound %d %d",
+				cis->mipi_clock_index_new, cur_mipi_sensor_mode->sensor_setting_size);
+		}
+	}
+
+	return ret;
+}
+#endif
 
 static void sensor_3h1_cis_data_calculation(const struct sensor_pll_info_compact *pll_info_compact, cis_shared_data *cis_data)
 {
@@ -152,6 +205,45 @@ static int sensor_3h1_wait_stream_off_status(cis_shared_data *cis_data)
 	return ret;
 }
 
+int sensor_3h1_cis_check_rev(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	u8 rev = 0;
+	struct i2c_client *client;
+	struct fimc_is_cis *cis = NULL;
+
+	WARN_ON(!subdev);
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	WARN_ON(!cis);
+	WARN_ON(!cis->cis_data);
+
+	client = cis->client;
+	if (unlikely(!client)) {
+		err("client is NULL");
+		ret = -EINVAL;
+		return ret;
+	}
+
+	memset(cis->cis_data, 0, sizeof(cis_shared_data));
+	cis->rev_flag = false;
+
+	I2C_MUTEX_LOCK(cis->i2c_lock);
+
+	ret = fimc_is_sensor_read8(client, 0x0002, &rev);
+	if (ret < 0) {
+		cis->rev_flag = true;
+		ret = -EAGAIN;
+	} else {
+		cis->cis_data->cis_rev = rev;
+		pr_info("%s : Default version 3h1 sensor. Rev. 0x%X\n", __func__, rev);
+	}
+
+	I2C_MUTEX_UNLOCK(cis->i2c_lock);
+
+	return ret;
+}
+
 /* CIS OPS */
 int sensor_3h1_cis_init(struct v4l2_subdev *subdev)
 {
@@ -159,7 +251,6 @@ int sensor_3h1_cis_init(struct v4l2_subdev *subdev)
 	struct fimc_is_cis *cis;
 	u32 setfile_index = 0;
 	cis_setting_info setinfo;
-	int retry_cnt = 3;
 	setinfo.param = NULL;
 	setinfo.return_value = 0;
 
@@ -173,28 +264,16 @@ int sensor_3h1_cis_init(struct v4l2_subdev *subdev)
 	}
 
 	FIMC_BUG(!cis->cis_data);
-	memset(cis->cis_data, 0, sizeof(cis_shared_data));
-	cis->rev_flag = false;
-
-retry:
-	ret = sensor_cis_check_rev(cis);
-	if (ret < 0) {
-		if (retry_cnt-- > 0) {
-			err("sensor_3h1_check_rev is fail. retry %d", retry_cnt);
-			usleep_range(10000, 10000);
-			goto retry;
-		} else {
-			warn("sensor_3h1_check_rev is fail when cis init, ret(%d)", ret);
-			cis->rev_flag = true;
-			goto p_err;
-		}
-	}
 
 	cis->cis_data->product_name = cis->id;
 	cis->cis_data->cur_width = SENSOR_3H1_MAX_WIDTH;
 	cis->cis_data->cur_height = SENSOR_3H1_MAX_HEIGHT;
 	cis->cis_data->low_expo_start = 33000;
 	cis->need_mode_change = false;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	sensor_3h1_cis_data_calculation(sensor_3h1_pllinfos[setfile_index], cis->cis_data);
 
@@ -370,6 +449,7 @@ int sensor_3h1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		goto p_err;
 	}
 
+#if 0
 	/* If check_rev fail when cis_init, one more check_rev in mode_change */
 	if (cis->rev_flag == true) {
 		cis->rev_flag = false;
@@ -379,8 +459,13 @@ int sensor_3h1_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 			goto p_err;
 		}
 	}
+#endif
 
 	sensor_3h1_cis_data_calculation(sensor_3h1_pllinfos[mode], cis->cis_data);
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = sensor_cis_set_registers(subdev, sensor_3h1_setfiles[mode], sensor_3h1_setfile_sizes[mode]);
@@ -600,6 +685,9 @@ int sensor_3h1_cis_stream_on(struct v4l2_subdev *subdev)
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	sensor_3h1_cis_set_mipi_clock(subdev);
+#endif
 	ret = sensor_3h1_cis_group_param_hold_func(subdev, 0x00);
 	if (ret < 0)
 		err("group_param_hold_func failed at stream on");
@@ -1680,6 +1768,105 @@ p_err:
 	return ret;
 }
 
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_3h1_cis_update_mipi_info(struct v4l2_subdev *subdev)
+{
+	struct fimc_is_cis *cis = NULL;
+	struct fimc_is_device_sensor *device;
+	const struct cam_mipi_sensor_mode *cur_mipi_sensor_mode;
+	int found = -1;
+
+	device = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (device == NULL) {
+		err("device is NULL");
+		return -1;
+	}
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	if (cis == NULL) {
+		err("cis is NULL");
+		return -1;
+	}
+
+	if (device->cfg->mode >= sensor_3h1_mipi_sensor_mode_size) {
+		err("sensor mode is out of bound");
+		return -1;
+	}
+
+	cur_mipi_sensor_mode = &sensor_3h1_mipi_sensor_mode[device->cfg->mode];
+
+	if (cur_mipi_sensor_mode->mipi_channel_size == 0 ||
+		cur_mipi_sensor_mode->mipi_channel == NULL) {
+		dbg_sensor(1, "skip select mipi channel\n");
+		return -1;
+	}
+
+	found = fimc_is_vendor_select_mipi_by_rf_channel(cur_mipi_sensor_mode->mipi_channel,
+				cur_mipi_sensor_mode->mipi_channel_size);
+	if (found != -1) {
+		if (found < cur_mipi_sensor_mode->sensor_setting_size) {
+			device->cfg->mipi_speed = cur_mipi_sensor_mode->sensor_setting[found].mipi_rate;
+			cis->mipi_clock_index_new = found;
+			info("%s - update mipi rate : %d\n", __func__, device->cfg->mipi_speed);
+		} else {
+			err("sensor setting size is out of bound");
+		}
+	}
+
+	return 0;
+}
+
+static int sensor_3h1_cis_get_mipi_clock_string(struct v4l2_subdev *subdev, char *cur_mipi_str)
+{
+	struct fimc_is_cis *cis = NULL;
+	struct fimc_is_device_sensor *device;
+	const struct cam_mipi_sensor_mode *cur_mipi_sensor_mode;
+	int mode = 0;
+
+	cur_mipi_str[0] = '\0';
+
+	device = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev);
+	if (device == NULL) {
+		err("device is NULL");
+		return -1;
+	}
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	if (cis == NULL) {
+		err("cis is NULL");
+		return -1;
+	}
+
+	if (cis->cis_data->stream_on) {
+		mode = cis->cis_data->sens_config_index_cur;
+
+		if (mode >= sensor_3h1_mipi_sensor_mode_size) {
+			err("sensor mode is out of bound");
+			return -1;
+		}
+
+		cur_mipi_sensor_mode = &sensor_3h1_mipi_sensor_mode[mode];
+
+		if (cur_mipi_sensor_mode->sensor_setting_size == 0 ||
+			cur_mipi_sensor_mode->sensor_setting == NULL) {
+			err("sensor_setting is not available");
+			return -1;
+		}
+
+		if (cis->mipi_clock_index_new < 0 ||
+			cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].str_mipi_clk == NULL) {
+			err("mipi_clock_index_new is not available");
+			return -1;
+		}
+
+		sprintf(cur_mipi_str, "%s",
+			cur_mipi_sensor_mode->sensor_setting[cis->mipi_clock_index_new].str_mipi_clk);
+	}
+
+	return 0;
+}
+#endif
+
 static struct fimc_is_cis_ops cis_ops = {
 	.cis_init = sensor_3h1_cis_init,
 	.cis_log_status = sensor_3h1_cis_log_status,
@@ -1706,6 +1893,11 @@ static struct fimc_is_cis_ops cis_ops = {
 	.cis_compensate_gain_for_extremely_br = sensor_cis_compensate_gain_for_extremely_br,
 	.cis_wait_streamoff = sensor_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_cis_wait_streamon,
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	.cis_update_mipi_info = sensor_3h1_cis_update_mipi_info,
+	.cis_get_mipi_clock_string = sensor_3h1_cis_get_mipi_clock_string,
+#endif
+	.cis_check_rev = sensor_3h1_cis_check_rev,
 };
 
 static int cis_3h1_probe(struct i2c_client *client,
@@ -1724,6 +1916,9 @@ static int cis_3h1_probe(struct i2c_client *client,
 	struct device *dev;
 	struct device_node *dnode;
 	int i;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	int index;
+#endif
 
 	FIMC_BUG(!client);
 	FIMC_BUG(!fimc_is_dev);
@@ -1786,6 +1981,10 @@ static int cis_3h1_probe(struct i2c_client *client,
 		sensor_peri->module->client = cis->client;
 		cis->i2c_lock = NULL;
 		cis->ctrl_delay = N_PLUS_TWO_FRAME;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+		cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 		cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
 		if (!cis->cis_data) {
 			err("cis_data is NULL");
@@ -1826,6 +2025,13 @@ static int cis_3h1_probe(struct i2c_client *client,
 		sensor_3h1_setfile_sizes = sensor_3h1_setfile_A_sizes;
 		sensor_3h1_pllinfos = sensor_3h1_pllinfos_A;
 		sensor_3h1_max_setfile_num = ARRAY_SIZE(sensor_3h1_setfiles_A);
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		sensor_3h1_mipi_sensor_mode = sensor_3h1_setfile_A_mipi_sensor_mode;
+		sensor_3h1_mipi_sensor_mode_size = ARRAY_SIZE(sensor_3h1_setfile_A_mipi_sensor_mode);
+		sensor_3h1_verify_sensor_mode = sensor_3h1_setfile_A_verify_sensor_mode;
+		sensor_3h1_verify_sensor_mode_size = ARRAY_SIZE(sensor_3h1_setfile_A_verify_sensor_mode);
+#endif
 	}
 #if 0
 	else if (strcmp(setfile, "setB") == 0) {
@@ -1842,8 +2048,26 @@ static int cis_3h1_probe(struct i2c_client *client,
 		sensor_3h1_setfile_sizes = sensor_3h1_setfile_A_sizes;
 		sensor_3h1_pllinfos = sensor_3h1_pllinfos_A;
 		sensor_3h1_max_setfile_num = ARRAY_SIZE(sensor_3h1_setfiles_A);
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		sensor_3h1_mipi_sensor_mode = sensor_3h1_setfile_A_mipi_sensor_mode;
+		sensor_3h1_mipi_sensor_mode_size = ARRAY_SIZE(sensor_3h1_setfile_A_mipi_sensor_mode);
+		sensor_3h1_verify_sensor_mode = sensor_3h1_setfile_A_verify_sensor_mode;
+		sensor_3h1_verify_sensor_mode_size = ARRAY_SIZE(sensor_3h1_setfile_A_verify_sensor_mode);
+#endif
 	}
 
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	for (i = 0; i < sensor_3h1_verify_sensor_mode_size; i++) {
+		index = sensor_3h1_verify_sensor_mode[i];
+
+		if (fimc_is_vendor_verify_mipi_channel(sensor_3h1_mipi_sensor_mode[index].mipi_channel,
+					sensor_3h1_mipi_sensor_mode[index].mipi_channel_size)) {
+			panic("wrong mipi channel");
+			break;
+		}
+	}
+#endif
 	probe_info("%s done\n", __func__);
 
 p_err:

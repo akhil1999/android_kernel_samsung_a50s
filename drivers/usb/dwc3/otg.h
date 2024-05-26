@@ -22,6 +22,12 @@
 #define __LINUX_USB_DWC3_OTG_H
 #include <linux/wakelock.h>
 #include <linux/usb/otg-fsm.h>
+#include <linux/pm_qos.h>
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+#include <linux/usb/exynos_usb_audio.h>
+#endif
+
+#define DWC3_OTG_MAX_LDOS	(10)
 
 struct dwc3_ext_otg_ops {
 	int	(*setup)(struct device *dev, struct otg_fsm *fsm);
@@ -54,14 +60,17 @@ struct dwc3_otg {
 	unsigned		ready:1;
 	int			otg_connection;
 
+	struct regulator	*ldo_con[DWC3_OTG_MAX_LDOS];
+#if defined(OLD_FASHIONED_LDO_CONTROL)
+	int ldos;
+#endif
 	struct regulator	*vbus_reg;
-	int			*ldo_num;
-	int			ldos;
+	int 		ldo_num;
+
+	struct pm_qos_request	pm_qos_int_req;
+	int			pm_qos_int_val;
 
 	struct dwc3_ext_otg_ops *ext_otg_ops;
-#if defined(CONFIG_TYPEC)
-	struct intf_typec	*typec;
-#endif
 };
 
 static inline int dwc3_ext_otg_setup(struct dwc3_otg *dotg)
@@ -107,5 +116,8 @@ int dwc3_exynos_rsw_setup(struct device *dev, struct otg_fsm *fsm);
 void dwc3_exynos_rsw_exit(struct device *dev);
 int dwc3_exynos_rsw_start(struct device *dev);
 void dwc3_exynos_rsw_stop(struct device *dev);
+#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+extern struct exynos_usb_audio *usb_audio;
+#endif
 
 #endif /* __LINUX_USB_DWC3_OTG_H */

@@ -503,6 +503,23 @@ static bool __init is_mpidr_duplicate(unsigned int cpu, u64 hwid)
 	return false;
 }
 
+static unsigned long cpu_offmask;
+
+static int __init cpu_boot_masking(char *s)
+{
+	long mask;
+	int ret;
+
+	ret = kstrtol(s, 16, &mask);
+	if (ret)
+		return -EINVAL;
+
+	cpu_offmask = (unsigned long)mask;
+
+	return 0;
+}
+early_param("cpu_offmask", cpu_boot_masking);
+
 /*
  * Initialize cpu operations for a logical cpu and
  * set it in the possible mask on success
@@ -514,6 +531,11 @@ static int __init smp_cpu_setup(int cpu)
 
 	if (cpu_ops[cpu]->cpu_init(cpu))
 		return -ENODEV;
+
+	if (test_bit(cpu, &cpu_offmask)) {
+		pr_err("%s: CPU%d OFF by cpu offmask\n",__func__,cpu);
+		return -ENODEV;
+	}
 
 	set_cpu_possible(cpu, true);
 

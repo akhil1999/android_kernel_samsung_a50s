@@ -29,6 +29,7 @@
 #define SMC_CMD_KERNEL_PANIC_NOTICE	(-122)
 #define SMC_CMD_SET_SEH_ADDRESS		(-123)
 #define SMC_CMD_LOCKUP_NOTICE		(0x8200007C)
+#define SMC_CMD_GET_SJTAG_STATUS	(0x8200012E)
 
 /* For protecting kernel text area */
 #define SMC_CMD_PROTECT_KERNEL_TEXT	(-125)
@@ -77,6 +78,15 @@
 #define SMC_DRM_SEC_SMMU_INFO		(0x820020D0)
 #define MC_FC_DRM_SET_CFW_PROT		(0x10000000)
 #define SMC_SRPMB_WSM			(0x82003811)
+
+/* Command ID for seccam */
+#define SMC_SECCAM_SETENV               (0x82002130)
+#define SMC_SECCAM_INIT                 (0x82002131)
+#define SMC_SECCAM_INIT_NSBUF           (0x82002134)
+#define SMC_SECCAM_SYSREG_PROT          (0x82002132)
+#define SMC_SECCAM_PREPARE              (0x82002135)
+#define SMC_SECCAM_UNPREPARE            (0x82002136)
+#define SMC_SECCAM_GETSTATUS            (0x82002137)
 
 /* Deprecated */
 #define SMC_DRM_MAKE_PGTABLE		(0x81000003)

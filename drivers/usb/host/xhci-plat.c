@@ -254,29 +254,6 @@ int xhci_portsc_set(u32 on)
 	return -EIO;
 }
 
-static void xhci_pm_runtime_init(struct device *dev)
-{
-    dev->power.runtime_status = RPM_SUSPENDED;
-    dev->power.idle_notification = false;
-
-    dev->power.disable_depth = 1;
-    atomic_set(&dev->power.usage_count, 0);
-
-    dev->power.runtime_error = 0;
-
-    atomic_set(&dev->power.child_count, 0);
-    pm_suspend_ignore_children(dev, false);
-    dev->power.runtime_auto = true;
-
-    dev->power.request_pending = false;
-    dev->power.request = RPM_REQ_NONE;
-    dev->power.deferred_resume = false;
-    dev->power.accounting_timestamp = jiffies;
-
-    dev->power.timer_expires = 0;
-    init_waitqueue_head(&dev->power.wait_queue);
-}
-
 static int xhci_plat_probe(struct platform_device *pdev)
 {
 	struct device		*parent = pdev->dev.parent;
@@ -342,8 +319,6 @@ static int xhci_plat_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
-
-	xhci_pm_runtime_init(&pdev->dev);
 
 	ret = pm_runtime_set_active(&pdev->dev);
 	if (ret != 0) {
@@ -462,8 +437,6 @@ static int xhci_plat_probe(struct platform_device *pdev)
 			"can't get xhci l2 support, error = %d\n", ret);
 	}
 
-	xhci->xhci_alloc = &xhci_pre_alloc;
-
 	ret = usb_add_hcd(hcd, irq, IRQF_SHARED);
 	if (ret)
 		goto disable_usb_phy;
@@ -543,36 +516,32 @@ static int xhci_plat_remove(struct platform_device *dev)
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
 	struct clk *clk = xhci->clk;
 	struct usb_hcd *shared_hcd = xhci->shared_hcd;
-	int timeout = 0;
 
 	dev_info(&dev->dev, "XHCI PLAT REMOVE\n");
 
 	usb3_portsc = NULL;
 	pp_set_delayed = 0;
 
-	/*
-	 * Sometimes deadlock occurred in this function.
-	 * So, below waiting for completion of hub_event was added.
-	 */
-	while (xhci->shared_hcd->is_in_hub_event || hcd->is_in_hub_event) {
-		msleep(10);
-		timeout += 10;
-		if (timeout >= XHCI_HUB_EVENT_TIMEOUT) {
-			xhci_err(xhci,
-				"ERROR: hub_event completion timeout\n");
-			break;
-		}
+#if defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
+	pr_info("%s\n", __func__);
+	/* In order to prevent kernel panic */
+	if (!pm_runtime_suspended(&xhci->shared_hcd->self.root_hub->dev)) {
+		pr_info("%s, shared_hcd pm_runtime_forbid\n", __func__);
+		pm_runtime_forbid(&xhci->shared_hcd->self.root_hub->dev);
 	}
-	xhci_dbg(xhci, "%s: waited %dmsec", __func__, timeout);
+	if (!pm_runtime_suspended(&xhci->main_hcd->self.root_hub->dev)) {
+		pr_info("%s, main_hcd pm_runtime_forbid\n", __func__);
+		pm_runtime_forbid(&xhci->main_hcd->self.root_hub->dev);
+	}
+#endif
 
 	xhci->xhc_state |= XHCI_STATE_REMOVING;
-	xhci->xhci_alloc->offset = 0;
 
 	dev_info(&dev->dev, "WAKE UNLOCK\n");
 	wake_unlock(xhci->wakelock);
 	wake_lock_destroy(xhci->wakelock);
 
-	usb_remove_hcd(shared_hcd);
+	usb_remove_hcd(xhci->shared_hcd);
 	xhci->shared_hcd = NULL;
 	usb_phy_shutdown(hcd->usb_phy);
 

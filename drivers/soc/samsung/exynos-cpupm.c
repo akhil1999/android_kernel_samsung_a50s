@@ -20,6 +20,14 @@
 #include <soc/samsung/cal-if.h>
 #include <soc/samsung/exynos-pmu.h>
 
+#if defined(CONFIG_SEC_PM)
+#if defined(CONFIG_MUIC_NOTIFIER) && defined(CONFIG_CCIC_NOTIFIER)
+#include <linux/muic/muic.h>
+#include <linux/muic/muic_notifier.h>
+#include <linux/usb/typec/pdic_notifier.h>
+#endif /* CONFIG_MUIC_NOTIFIER && CONFIG_CCIC_NOTIFIER */
+#endif /* CONFIG_SEC_PM */
+
 #ifdef CONFIG_CPU_IDLE
 /*
  * State of each cpu is managed by a structure declared by percpu, so there
@@ -272,11 +280,6 @@ static void __init idle_ip_init(void)
 /******************************************************************************
  *                                CAL interfaces                              *
  ******************************************************************************/
-#ifdef CONFIG_EXYNOS_REBOOT
-extern void big_reset_control(int en);
-#else
-static inline void big_reset_control(int en) { }
-#endif
 
 static void cpu_enable(unsigned int cpu)
 {
@@ -291,12 +294,10 @@ static void cpu_disable(unsigned int cpu)
 static void cluster_enable(unsigned int cluster_id)
 {
 	cal_cluster_enable(cluster_id);
-	big_reset_control(1);
 }
 
 static void cluster_disable(unsigned int cluster_id)
 {
-	big_reset_control(0);
 	cal_cluster_disable(cluster_id);
 }
 
@@ -856,15 +857,11 @@ static int __init cpu_power_mode_init(void)
 		if (of_property_read_bool(dn, "system-idle"))
 			mode->system_idle = true;
 
-		if (!of_property_read_string(dn, "siblings", &buf)) {
+		if (!of_property_read_string(dn, "siblings", &buf))
 			cpulist_parse(buf, &mode->siblings);
-			cpumask_and(&mode->siblings, &mode->siblings, cpu_possible_mask);
-		}
 
-		if (!of_property_read_string(dn, "entry-allowed", &buf)) {
+		if (!of_property_read_string(dn, "entry-allowed", &buf))
 			cpulist_parse(buf, &mode->entry_allowed);
-			cpumask_and(&mode->entry_allowed, &mode->entry_allowed, cpu_possible_mask);
-		}
 
 		atomic_set(&mode->disable, 0);
 
@@ -952,3 +949,50 @@ static int __init exynos_cpupm_early_init(void)
 	return 0;
 }
 early_initcall(exynos_cpupm_early_init);
+
+#if defined(CONFIG_SEC_PM)
+#if defined(CONFIG_MUIC_NOTIFIER) && defined(CONFIG_CCIC_NOTIFIER)
+struct notifier_block cpuidle_muic_nb;
+
+static int exynos_cpupm_muic_notifier(struct notifier_block *nb,
+				unsigned long action, void *data)
+{
+	CC_NOTI_ATTACH_TYPEDEF *pnoti = (CC_NOTI_ATTACH_TYPEDEF *)data;
+	muic_attached_dev_t attached_dev = pnoti->cable_type;
+	bool jig_is_attached = false;
+
+	switch (attached_dev) {
+	case ATTACHED_DEV_JIG_UART_OFF_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC:
+	case ATTACHED_DEV_JIG_UART_ON_MUIC:
+	case ATTACHED_DEV_JIG_UART_ON_VB_MUIC:
+		if (action == MUIC_NOTIFY_CMD_DETACH) {
+			jig_is_attached = false;
+			enable_power_mode(0, POWERMODE_TYPE_SYSTEM);
+		} else if (action == MUIC_NOTIFY_CMD_ATTACH) {
+			jig_is_attached = true;
+			disable_power_mode(0, POWERMODE_TYPE_SYSTEM);
+		} else {
+			pr_err("%s: ACTION Error!(%lu)\n", __func__, action);
+		}
+
+		pr_info("%s: JIG(%d) is %s\n", __func__, attached_dev,
+				jig_is_attached ? "attached" : "detached");
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
+static int __init exynos_cpupm_muic_notifier_init(void)
+{
+	return muic_notifier_register(&cpuidle_muic_nb,
+			exynos_cpupm_muic_notifier, MUIC_NOTIFY_DEV_CPUIDLE);
+}
+late_initcall(exynos_cpupm_muic_notifier_init);
+#endif /* CONFIG_MUIC_NOTIFIER && CONFIG_CCIC_NOTIFIER */
+#endif /* CONFIG_SEC_PM */

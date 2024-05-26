@@ -28,6 +28,16 @@
 #define TE_PROTECT_ON_TIME		158 /* 15.8ms*/
 #define TE_TIMEOUT_TIME			180 /* 18ms */
 
+/* CHIP_ID & HACT_PERIOD registers are defined here
+ * only in order to check sub revision
+ * and then set Hactive period
+ * for evt 0.3 which is revised relating to wclk margin removal
+ */
+#define CHIP_ID_REVISION_ADDR		0x10000010	/* [23:20] : main, [19:16] : sub */
+#define CHIP_ID_SUB_REVISION_GET(x)	((x >> 16) & 0xf)
+
+#define DSIM_HACT_PERIOD_ADDR		0x14810004	/* located at SYSREG_DISPAUD */
+
 const u32 DSIM_PHY_CHARIC_VAL[][9] = {
 	/* MPLL_CTRL1, MPLL_CTRL2, B_DPHY_CTRL2, B_DPHY_CTRL3, B_DPHY_CTRL_4,
 	   M_DPHY_CTRL1, M_DPHY_CTRL2, M_DPHY_CTRL3, M_DPHY_CTRL4*/
@@ -204,7 +214,6 @@ const u32 dphy_timing[][10] = {
 	{1310, 12, 22, 8, 9, 12, 9, 13, 9, 8},
 	{1300, 12, 21, 8, 9, 12, 8, 13, 9, 7},
 	{1290, 12, 21, 8, 9, 12, 8, 13, 9, 7},
-	{1284, 12, 21, 8, 9, 12, 8, 12, 9, 7},
 	{1280, 12, 21, 8, 9, 12, 8, 12, 9, 7},
 	{1270, 12, 21, 8, 9, 12, 8, 12, 9, 7},
 	{1260, 12, 20, 8, 8, 12, 8, 12, 9, 7},
@@ -295,6 +304,27 @@ const u32 b_dphyctl[14] = {
 };
 
 /***************************** DPHY CAL functions *******************************/
+static u32 dsim_get_chip_sub_revision(void)
+{
+	void __iomem *revision_addr = ioremap(CHIP_ID_REVISION_ADDR, 0x4);
+	u32 val = readl(revision_addr);
+
+	iounmap(revision_addr);
+
+	dsim_info("%s : CHIP_ID_SUB_REVISION = %d\n", __func__, CHIP_ID_SUB_REVISION_GET(val));
+
+	return CHIP_ID_SUB_REVISION_GET(val);
+}
+
+static void dsim_set_hactive_period(u32 hact_period)
+{
+	void __iomem *sysreg_hact_addr = ioremap(DSIM_HACT_PERIOD_ADDR, 0x4);
+
+	writel(hact_period, sysreg_hact_addr);
+
+	iounmap(sysreg_hact_addr);
+}
+
 void dsim_reg_set_m_pll_ctrl1(u32 id, u32 m_pll_ctrl1)
 {
 	dsim_write(id, DSIM_PLL_CTRL1, m_pll_ctrl1);
@@ -767,15 +797,53 @@ static void dsim_reg_set_hresol(u32 id, u32 hresol, struct decon_lcd *lcd)
 
 static void dsim_reg_set_porch(u32 id, struct decon_lcd *lcd)
 {
+	u32 hblank, vblank;
+	u64 vclk, vclk_div2, wclk;	/* unit : hz */
+	u64 hact_period, hbp_period, hfp_period, hsa_period;
+
 	if (lcd->mode == DECON_VIDEO_MODE) {
 		dsim_reg_set_vbp(id, lcd->vbp);
 		dsim_reg_set_vfp(id, lcd->vfp);
 		dsim_reg_set_stable_vfp(id, DSIM_STABLE_VFP_VALUE);
 		dsim_reg_set_cmdallow(id, lcd->vfp - DSIM_STABLE_VFP_VALUE - 3);
-		dsim_reg_set_hbp(id, lcd->hbp);
-		dsim_reg_set_hfp(id, lcd->hfp);
 		dsim_reg_set_vsa(id, lcd->vsa);
-		dsim_reg_set_hsa(id, lcd->hsa);
+
+		if (dsim_get_chip_sub_revision() >= 3) {
+			hblank = lcd->hsa + lcd->hbp + lcd->hfp;
+			vblank = lcd->vsa + lcd->vbp + lcd->vfp;
+			vclk = (lcd->xres + hblank) * (lcd->yres + vblank) * lcd->fps;
+			vclk_div2 = vclk / 2;
+			wclk = lcd->hs_clk * 1000000 / 16;
+
+			hbp_period = lcd->hbp * wclk / vclk_div2;
+			hbp_period = (hbp_period + 1) / 2 * 2;	/* should be even */
+			dsim_reg_set_hbp(id, (u32)hbp_period);
+
+			hfp_period = lcd->hfp * wclk / vclk_div2;
+			hfp_period = (hfp_period + 1) / 2 * 2;	/* should be even */
+			dsim_reg_set_hfp(id, (u32)hfp_period);
+
+			hsa_period = lcd->hsa * wclk / vclk_div2;
+			hsa_period = (hsa_period + 1) / 2 * 2;	/* should be even */
+			dsim_reg_set_hsa(id, (u32)hsa_period);
+
+			hact_period = lcd->xres * wclk / vclk_div2;
+			hact_period = (hact_period + 1) / 2 * 2;	/* should be even */
+			dsim_set_hactive_period((u32)hact_period);
+
+			dsim_info("vclk = %llukHz, vclk_div2 = %llukHz\n",
+				vclk / 1000, vclk_div2 / 1000);
+			dsim_info("hsclk = %ukHz, wclk = %llukHz\n",
+				lcd->hs_clk * 1000, wclk / 1000);
+			dsim_info("hsa_period = %llu, hbp_period = %llu, hfp_period = %llu\n",
+				hsa_period, hbp_period, hfp_period);
+			dsim_info("hact_period = %llu\n", hact_period);
+		} else {
+			dsim_reg_set_hbp(id, lcd->hbp);
+			dsim_reg_set_hfp(id, lcd->hfp);
+			dsim_reg_set_hsa(id, lcd->hsa);
+		}
+
 	}
 }
 
@@ -1277,39 +1345,33 @@ static int dsim_reg_wait_exit_ulps_state(u32 id)
 static int dsim_reg_get_dphy_timing(u32 hs_clk, u32 esc_clk,
 		struct dphy_timing_value *t)
 {
-	u32 index = 0;
-	u32 timing_counts = sizeof(dphy_timing) / sizeof(dphy_timing[0]);
+	int val;
 
-	for(index = 0;index < timing_counts;index++){
-		if(hs_clk==dphy_timing[index][0])
-			break;
-	}
-	dsim_info("index = %d,timing_counts=%d.\n",index,timing_counts);
+	val  = (dphy_timing[0][0] - hs_clk) / 10;
 
-	if(index >= timing_counts){
+	if (val > ((sizeof(dphy_timing) / sizeof(dphy_timing[0])) - 1)) {
 		dsim_err("%u Mhz hs clock can't find proper dphy timing values\n",
 				hs_clk);
 		return -EINVAL;
 	}
 
-
 	t->bps = hs_clk;
-	t->clk_prepare = dphy_timing[index][1];
-	t->clk_zero = dphy_timing[index][2];
-	t->clk_post = dphy_timing[index][3];
-	t->clk_trail = dphy_timing[index][4];
-	t->hs_prepare = dphy_timing[index][5];
-	t->hs_zero = dphy_timing[index][6];
-	t->hs_trail = dphy_timing[index][7];
-	t->lpx = dphy_timing[index][8];
-	t->hs_exit = dphy_timing[index][9];
+	t->clk_prepare = dphy_timing[val][1];
+	t->clk_zero = dphy_timing[val][2];
+	t->clk_post = dphy_timing[val][3];
+	t->clk_trail = dphy_timing[val][4];
+	t->hs_prepare = dphy_timing[val][5];
+	t->hs_zero = dphy_timing[val][6];
+	t->hs_trail = dphy_timing[val][7];
+	t->lpx = dphy_timing[val][8];
+	t->hs_exit = dphy_timing[val][9];
 
-	dsim_info("%s: bps(%u) clk_prepare(%u) clk_zero(%u) clk_post(%u)\n",
+	dsim_dbg("%s: bps(%u) clk_prepare(%u) clk_zero(%u) clk_post(%u)\n",
 			__func__, t->bps, t->clk_prepare, t->clk_zero,
 			t->clk_post);
-	dsim_info("clk_trail(%u) hs_prepare(%u) hs_zero(%u) hs_trail(%u)\n",
+	dsim_dbg("clk_trail(%u) hs_prepare(%u) hs_zero(%u) hs_trail(%u)\n",
 			t->clk_trail, t->hs_prepare, t->hs_zero, t->hs_trail);
-	dsim_info("lpx(%u) hs_exit(%u)\n", t->lpx, t->hs_exit);
+	dsim_dbg("lpx(%u) hs_exit(%u)\n", t->lpx, t->hs_exit);
 
 	if ((esc_clk > 20) || (esc_clk < 7)) {
 		dsim_err("%u Mhz cann't be used as escape clock\n", esc_clk);
@@ -1337,7 +1399,7 @@ static void dsim_reg_set_config(u32 id, struct decon_lcd *lcd_info,
 	if (lcd_info->mode == DECON_VIDEO_MODE)
 		dsim_reg_enable_clocklane(id, 0);
 	else
-		dsim_reg_enable_noncont_clock(id, 1);
+		dsim_reg_enable_noncont_clock(id, lcd_info->noncontinuous_clklane);
 
 	dsim_set_hw_deskew(id, 0); /* second param is to control enable bit */
 
@@ -1378,7 +1440,7 @@ static void dsim_reg_set_config(u32 id, struct decon_lcd *lcd_info,
 	}
 
 	dsim_reg_set_num_of_lane(id, lcd_info->data_lane - 1);
-	dsim_reg_enable_eotp(id, 0);
+	dsim_reg_enable_eotp(id, 1);
 	dsim_reg_enable_per_frame_read(id, 0);
 	dsim_reg_set_pixel_format(id, DSIM_PIXEL_FORMAT_RGB24);
 	dsim_reg_set_vc_id(id, 0);
@@ -1429,7 +1491,10 @@ static void dsim_reg_set_config(u32 id, struct decon_lcd *lcd_info,
 	if (lcd_info->mode == DECON_MIPI_COMMAND_MODE) {
 		dsim_reg_set_cmd_ctrl(id, lcd_info, clks);
 	} else if (lcd_info->mode == DECON_VIDEO_MODE) {
-		dsim_reg_set_vt_compensate(id, lcd_info->vt_compensation);
+		if (dsim_get_chip_sub_revision() >= 3)
+			dsim_reg_set_vt_compensate(id, 0);
+		else
+			dsim_reg_set_vt_compensate(id, lcd_info->vt_compensation);
 		dsim_reg_set_vstatus_int(id, DSIM_VSYNC);
 	}
 
@@ -1465,6 +1530,7 @@ static int dsim_reg_set_clocks(u32 id, struct dsim_clks *clks,
 	struct dphy_timing_value t;
 	int ret = 0;
 	u32 hsmode = 0;
+	u32 fin = 26;
 
 	if (en) {
 		/*
@@ -1485,6 +1551,13 @@ static int dsim_reg_set_clocks(u32 id, struct dsim_clks *clks,
 		pll.m = dphy_pms->m;
 		pll.s = dphy_pms->s;
 
+		/* requested DPHY PLL frequency(HS clock) */
+		pll.pll_freq = (pll.m * fin) / (pll.p * (1 << pll.s));
+
+		pr_info_once("%s: hs_clk: %d, pll_freq: %d\n", __func__, clks->hs_clk, pll.pll_freq);
+
+		/* store calculated hs clock */
+		clks->hs_clk = pll.pll_freq;
 		/* get word clock */
 		dsim_dbg("hs clock is %u MHz\n", clks->hs_clk);
 		/* clks ->hs_clk is from DT */
@@ -1559,7 +1632,7 @@ static u32 dsim_reg_is_noncont_clk_enabled(u32 id)
 	return ret;
 }
 
-int dsim_reg_set_hs_clock(u32 id, u32 en)
+static int dsim_reg_set_hs_clock(u32 id, u32 en)
 {
 	int reg = 0;
 	int is_noncont = dsim_reg_is_noncont_clk_enabled(id);
@@ -1575,7 +1648,7 @@ int dsim_reg_set_hs_clock(u32 id, u32 en)
 	return reg;
 }
 
-void dsim_reg_set_int(u32 id, u32 en)
+static void dsim_reg_set_int(u32 id, u32 en)
 {
 	u32 val = en ? 0 : ~0;
 	u32 mask;
@@ -1686,6 +1759,23 @@ static int dsim_reg_set_smddi_ulps(u32 id, u32 en, u32 lanes)
 	return ret;
 }
 
+static int dsim_reg_set_magnaddi_ulps(u32 id, u32 en, u32 lanes)
+{
+	int ret = 0;
+
+	if (en) {
+		/* Enable ULPS clock and data lane */
+		dsim_reg_enter_ulps(id, 1);
+
+		/* Check ULPS request for data lane */
+		ret = dsim_reg_wait_enter_ulps_state(id, lanes);
+		if (ret)
+			return ret;
+	}
+
+	return ret;
+}
+
 static int dsim_reg_set_ulps_by_ddi(u32 id, u32 ddi_type, u32 lanes, u32 en)
 {
 	int ret;
@@ -1695,8 +1785,7 @@ static int dsim_reg_set_ulps_by_ddi(u32 id, u32 ddi_type, u32 lanes, u32 en)
 		ret = dsim_reg_set_smddi_ulps(id, en, lanes);
 		break;
 	case TYPE_OF_MAGNA_DDI:
-		dsim_err("This ddi(%d) doesn't support ULPS\n", ddi_type);
-		ret = -EINVAL;
+		ret = dsim_reg_set_magnaddi_ulps(id, en, lanes);
 		break;
 	case TYPE_OF_NORMAL_DDI:
 	default:
@@ -1738,12 +1827,24 @@ void dsim_reg_init(u32 id, struct decon_lcd *lcd_info, struct dsim_clks *clks,
 		bool panel_ctrl)
 {
 	struct dsim_device *dsim = get_dsim_drvdata(id);
-
+#if 1
 	if (dsim->state == DSIM_STATE_INIT) {
 		if (dsim_reg_is_pll_stable(dsim->id)) {
 			dsim_info("dsim%d PLL is stabled in bootloader, so skip DSIM link/DPHY init.\n", dsim->id);
 			return;
 		}
+	}
+#endif
+
+	/* Panel power on */
+	if (panel_ctrl) {
+
+		dsim_set_panel_power_early(dsim);
+
+		if (dsim->state != DSIM_STATE_INIT)
+			call_panel_ops(dsim, resume_early, dsim);
+
+		dsim_set_panel_power(dsim, 1);
 	}
 
 	/* choose OSC_CLK */
@@ -1763,15 +1864,7 @@ void dsim_reg_init(u32 id, struct decon_lcd *lcd_info, struct dsim_clks *clks,
 	dsim_reg_set_esc_clk_on_lane(id, 1, dsim->data_lane);
 	dsim_reg_enable_word_clock(id, 1);
 
-	/* Panel power on */
-	if (panel_ctrl)
-		dsim_set_panel_power(dsim, 1);
-
 	dsim_reg_set_config(id, lcd_info, clks);
-
-#if defined(CONFIG_EXYNOS_PANEL_INIT_LPDT)
-	dsim_reg_set_cmd_transfer_mode(dsim->id, 1);
-#endif
 
 	if (panel_ctrl)
 		dsim_reset_panel(dsim);
@@ -1781,6 +1874,7 @@ void dsim_reg_init(u32 id, struct decon_lcd *lcd_info, struct dsim_clks *clks,
 void dsim_reg_start(u32 id)
 {
 	dsim_reg_set_hs_clock(id, 1);
+	dsim_reg_set_int(id, 1);
 }
 
 /* Unset clocks and lanes and stop_state */
@@ -1800,7 +1894,7 @@ int dsim_reg_stop(u32 id, u32 lanes)
 	dsim_reg_set_link_clock(id, 0);
 	dsim_reg_set_lanes(id, lanes, 0);
 	dsim_reg_set_esc_clk_on_lane(id, 0, lanes);
-	//dsim_reg_enable_word_clock(id, 0);
+/*	dsim_reg_enable_word_clock(id, 0); */
 	dsim_reg_set_clocks(id, NULL, NULL, 0);
 	dsim_reg_sw_reset(id);
 
@@ -1823,10 +1917,7 @@ int dsim_reg_exit_ulps_and_start(u32 id, u32 ddi_type, u32 lanes)
 
 	/* try to exit ULPS mode. The sequence is depends on DDI type */
 	ret = dsim_reg_set_ulps_by_ddi(id, ddi_type, lanes, 0);
-#if !defined(CONFIG_EXYNOS_PANEL_INIT_LPDT)
 	dsim_reg_start(id);
-#endif
-	dsim_reg_set_int(id, 1);
 	return ret;
 }
 

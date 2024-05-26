@@ -16,7 +16,6 @@
 #include "../sched.h"
 #include "../tune.h"
 #include "./ems.h"
-#include "../sched-pelt.h"
 
 /****************************************************************/
 /*			On-time migration			*/

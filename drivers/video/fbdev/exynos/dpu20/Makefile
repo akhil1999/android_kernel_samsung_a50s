@@ -5,6 +5,8 @@
 # Licensed under GPLv2
 #
 
+subdir-ccflags-$(CONFIG_SEC_GPIO_DVS)	+= -DCONFIG_SMCDSD_LCD_DEBUG
+
 obj-$(CONFIG_EXYNOS_DPP) += dpp.o
 dpp-y := dpp_drv.o
 obj-$(CONFIG_EXYNOS_MIPI_DSIM) += dsim.o
@@ -17,10 +19,6 @@ obj-$(CONFIG_SOC_EXYNOS9610) += ./cal_9610/displayport_reg.o
 endif
 obj-$(CONFIG_EXYNOS_DPU20) += decon.o
 obj-$(CONFIG_EXYNOS_BTS) += bts.o
-ifdef CONFIG_EXYNOS_DECON_DQE
-obj-$(CONFIG_EXYNOS_DECON_DQE) += dqe.o
-dqe-y += dqe_drv.o
-obj-$(CONFIG_SOC_EXYNOS9610) += ./cal_9610/dqe_reg.o
-endif
 decon-y += decon_core.o decon_dsi.o decon_wb.o helper.o win_update.o cursor.o fence.o event_log.o
 obj-y += panels/
+ccflags-$(CONFIG_SAMSUNG_TUI)	+= -Idrivers/misc/tui

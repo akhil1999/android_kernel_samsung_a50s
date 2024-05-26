@@ -27,11 +27,9 @@ fimc-is-objs	:= fimc-is-core.o \
 		fimc-is-video-ssvc1.o \
 		fimc-is-video-ssvc2.o \
 		fimc-is-video-ssvc3.o \
-		fimc-is-video-preprocessor.o \
 		fimc-is-video-pafrdma.o \
 		fimc-is-subdev-ctrl.o \
 		fimc-is-device-ischain.o \
-		fimc-is-device-preprocessor.o \
 		fimc-is-time.o \
 		fimc-is-dvfs.o \
 		fimc-is-dt.o \
@@ -80,7 +78,7 @@ subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/hardware/api
 subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/vendor
 subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/sensor/csi
 subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/sensor/module_framework
-subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/vendor/default/preprocessor
+subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/vendor/mcd/preprocessor
 subdir-ccflags-$(CONFIG_FIMC_IS_V3_1_1) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v3_1_1
 subdir-ccflags-$(CONFIG_FIMC_IS_V3_11_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v3_11_0
 subdir-ccflags-$(CONFIG_FIMC_IS_V3_20_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v3_20_0
@@ -91,5 +89,12 @@ subdir-ccflags-$(CONFIG_FIMC_IS_V5_15_0) += -Idrivers/media/platform/exynos/fimc
 subdir-ccflags-$(CONFIG_FIMC_IS_V5_2_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v5_2_0
 subdir-ccflags-$(CONFIG_FIMC_IS_V6_0_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v6_0_0
 subdir-ccflags-$(CONFIG_FIMC_IS_V6_10_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v6_10_0
+subdir-ccflags-$(CONFIG_FIMC_IS_V7_0_0) += -Idrivers/media/platform/exynos/fimc-is2/ischain/fimc-is-v7_0_0
 
-subdir-ccflags-$(CONFIG_VENDER_DEFAULT) += -Idrivers/media/platform/exynos/fimc-is2/vendor/default
+ifeq ($(CONFIG_VENDER_MCD),y)
+subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/vendor/mcd
+else ifeq ($(CONFIG_VENDER_MCD_V2),y)
+subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/vendor/mcd_v2
+else
+subdir-ccflags-y += -Idrivers/media/platform/exynos/fimc-is2/vendor/default
+endif

@@ -517,17 +517,15 @@ EXPORT_SYMBOL(ip_idents_reserve);
 
 void __ip_select_ident(struct net *net, struct iphdr *iph, int segs)
 {
+	static u32 ip_idents_hashrnd __read_mostly;
 	u32 hash, id;
 
-	/* Note the following code is not safe, but this is okay. */
-	if (unlikely(siphash_key_is_zero(&net->ipv4.ip_id_key)))
-		get_random_bytes(&net->ipv4.ip_id_key,
-				 sizeof(net->ipv4.ip_id_key));
+	net_get_random_once(&ip_idents_hashrnd, sizeof(ip_idents_hashrnd));
 
-	hash = siphash_3u32((__force u32)iph->daddr,
+	hash = jhash_3words((__force u32)iph->daddr,
 			    (__force u32)iph->saddr,
-			    iph->protocol,
-			    &net->ipv4.ip_id_key);
+			    iph->protocol ^ net_hash_mix(net),
+			    ip_idents_hashrnd);
 	id = ip_idents_reserve(hash, segs);
 	iph->id = htons(id);
 }
@@ -963,10 +961,12 @@ static int ip_error(struct sk_buff *skb)
 		switch (rt->dst.error) {
 		case EHOSTUNREACH:
 			__IP_INC_STATS(net, IPSTATS_MIB_INADDRERRORS);
+			DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INADDRERRORS);
 			break;
 
 		case ENETUNREACH:
 			__IP_INC_STATS(net, IPSTATS_MIB_INNOROUTES);
+			DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INNOROUTES);
 			break;
 		}
 		goto out;
@@ -982,6 +982,7 @@ static int ip_error(struct sk_buff *skb)
 	case ENETUNREACH:
 		code = ICMP_NET_UNREACH;
 		__IP_INC_STATS(net, IPSTATS_MIB_INNOROUTES);
+		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INNOROUTES);
 		break;
 	case EACCES:
 		code = ICMP_PKT_FILTERED;

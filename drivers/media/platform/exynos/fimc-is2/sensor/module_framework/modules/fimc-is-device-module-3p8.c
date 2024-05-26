@@ -109,8 +109,7 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_module_3p8_power_setpin_with_af(struct platform_device *pdev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_mclk = 0;
 	int gpio_none = 0;
@@ -124,11 +123,6 @@ static int sensor_module_3p8_power_setpin_with_af(struct platform_device *pdev,
 	int gpio_ois_core_en = 0;
 	int gpio_ois_io_en = 0;
 #endif
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -419,7 +413,7 @@ static int sensor_module_3p8_power_setpin_with_af(struct platform_device *pdev,
 	return 0;
 }
 
-static int sensor_module_3p8_power_setpin(struct platform_device *pdev,
+static int sensor_module_3p8_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
 	struct device *dev;
@@ -597,7 +591,7 @@ static int __init sensor_module_3p8_probe(struct platform_device *pdev)
 
 	probe_info("%s exist_actuator(%d)\n", __func__, exist_actuator);
 
-	fimc_is_sensor_module_parse_dt(pdev, module_3p8_power_setpin[exist_actuator]);
+	fimc_is_module_parse_dt(dev, module_3p8_power_setpin[exist_actuator]);
 
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];

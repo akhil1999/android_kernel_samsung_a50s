@@ -37,9 +37,8 @@
 
 #include "phy-exynos-usbdrd.h"
 #include "phy-exynos-debug.h"
-/*
+
 extern int sm5713_get_usb_connect(void);
-*/
 
 static void exynos_usbdrd_check_connection(struct exynos_usbdrd_phy *phy_drd)
 {
@@ -50,9 +49,9 @@ static void exynos_usbdrd_check_connection(struct exynos_usbdrd_phy *phy_drd)
 	dev_info(phy_drd->dev, "USB is plugged in %d side...\n", usb_side);
 
 	if (usb_side == 1) /* front */
-		phy_drd->usbphy_info.used_phy_port = 0;
-	else if (usb_side == 0)
 		phy_drd->usbphy_info.used_phy_port = 1;
+	else if (usb_side == 0)
+		phy_drd->usbphy_info.used_phy_port = 0;
 #endif
 }
 
@@ -446,7 +445,7 @@ static void exynos_usbdrd_pipe3_phy_isol(struct phy_usb_instance *inst,
 	unsigned int val;
 
 	if (phy_drd->usb3phy_isolation == 1)
-		return ;
+		return;
 
 	if (!inst->reg_pmu)
 		return;
@@ -825,7 +824,7 @@ static int exynos_usbdrd_fill_hstune_param(struct exynos_usbdrd_phy *phy_drd,
 
 	dev_info(dev, "%s hs tune cnt = %d\n", __func__, res[0]);
 
-	hs_tune_param = devm_kzalloc(dev, size*res[0], GFP_KERNEL);
+	hs_tune_param = devm_kzalloc(dev, size*(res[0]+1), GFP_KERNEL);
 	if (hs_tune_param == NULL)
 		return -ENOMEM;
 
@@ -842,7 +841,8 @@ static int exynos_usbdrd_fill_hstune_param(struct exynos_usbdrd_phy *phy_drd,
 
 		ret = of_property_read_u32_array(child, "tune_value", res, 2);
 		if (ret == 0) {
-			hs_tune_param[param_index].value = res[0];
+			phy_drd->hs_tune_param_value[param_index][0] = res[0];
+			phy_drd->hs_tune_param_value[param_index][1] = res[1];
 		} else {
 			dev_err(dev, "failed to read hs tune value from %s node\n", child->name);
 			return -EINVAL;
@@ -1188,7 +1188,7 @@ static void exynos_usbdrd_pipe3_init(struct exynos_usbdrd_phy *phy_drd)
 {
 	if (phy_drd->usb3phy_isolation == 1) {
 		dev_info(phy_drd->dev, "USB3.0 PHY is isolated...\n");
-		return ;
+		return;
 	}
 
 	exynos_usbdrd_check_connection(phy_drd);
@@ -1315,7 +1315,7 @@ static void exynos_usbdrd_pipe3_tune(struct exynos_usbdrd_phy *phy_drd,
 	int i = 0;
 
 	if (phy_drd->usb3phy_isolation == 1)
-		return ;
+		return;
 
 	exynos_usbdrd_check_connection(phy_drd);
 
@@ -1331,9 +1331,25 @@ static void exynos_usbdrd_utmi_tune(struct exynos_usbdrd_phy *phy_drd,
 							int phy_state)
 {
 	struct exynos_usb_tune_param *hs_tune_param = phy_drd->usbphy_info.tune_param;
+	int i;
 
-	dev_info(phy_drd->dev, "%s %s %d\n", __func__, hs_tune_param[0].name,
-		hs_tune_param[0].value);
+	dev_info(phy_drd->dev, "%s: device=%d\n", __func__, (phy_state >= OTG_STATE_A_IDLE)? 0 : 1);
+
+	if (phy_state >= OTG_STATE_A_IDLE) {
+		/* for host mode */
+		for (i = 0; hs_tune_param[i].value != EXYNOS_USB_TUNE_LAST; i++) {
+			if (i == EXYNOS_DRD_MAX_TUNEPARAM_NUM)
+				break;
+			hs_tune_param[i].value = phy_drd->hs_tune_param_value[i][USBPHY_MODE_HOST];
+		}
+	} else {
+		/* for device mode */
+		for (i = 0; hs_tune_param[i].value != EXYNOS_USB_TUNE_LAST; i++)  {
+			if (i == EXYNOS_DRD_MAX_TUNEPARAM_NUM)
+				break;
+			hs_tune_param[i].value = phy_drd->hs_tune_param_value[i][USBPHY_MODE_DEV];
+		}
+	}
 
 	phy_exynos_usb_v3p1_tune(&phy_drd->usbphy_info);
 

@@ -24,7 +24,6 @@
 #include <linux/dmaengine.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
-#include <linux/time.h>
 #include <linux/spi/spi.h>
 #include <linux/gpio.h>
 #include <linux/of.h>
@@ -48,7 +47,6 @@ static LIST_HEAD(drvdata_list);
 
 #define MAX_SPI_PORTS		22
 #define SPI_AUTOSUSPEND_TIMEOUT		(100)
-#define SPI_TIMEOUT (msecs_to_jiffies(100))
 
 /* Registers and bit-fields */
 
@@ -440,7 +438,6 @@ static int s3c64xx_spi_prepare_transfer(struct spi_master *spi)
 	struct s3c64xx_spi_driver_data *sdd = spi_master_get_devdata(spi);
 	struct s3c64xx_spi_info *sci = sdd->cntrlr_info;
 #ifdef CONFIG_PM
-	unsigned long timeout;
 	int ret;
 #endif
 
@@ -453,24 +450,9 @@ static int s3c64xx_spi_prepare_transfer(struct spi_master *spi)
 #endif
 
 #ifdef CONFIG_PM
-	timeout = jiffies + SPI_TIMEOUT;
-	while(time_before(jiffies, timeout)) {
-		ret = pm_runtime_get_sync(&sdd->pdev->dev);
-		if(ret < 0) {
-			dev_err(&sdd->pdev->dev, "SPI runtime get sync failed, and wait for 1msec ret: %d\n", ret);
-			usleep_range(1000,1000);
-		}
-		else {
-			ret = 0;
-			break;
-		}
-	}
-
-	if (ret < 0) {
-		dev_err(&sdd->pdev->dev, "Error: SPI runtime get sync failed after 10msec waiting ret: %d\n", ret);
+	ret = pm_runtime_get_sync(&sdd->pdev->dev);
+	if(ret < 0)
 		return ret;
-	}
-
 #endif
 
 	if (sci->need_hw_init) {
@@ -1239,6 +1221,21 @@ static int s3c64xx_spi_setup(struct spi_device *spi)
 		return -ENODEV;
 	}
 
+#ifdef CONFIG_ESE_SECURE
+	if (sdd->port_id == CONFIG_ESE_SECURE_SPI_PORT) {
+		dev_info(&spi->dev,
+			"spi configuration for secure channel is skipped(eSE)\n");
+		return 0;
+	}
+#endif
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (sdd->port_id == CONFIG_SENSORS_FP_SPI_NUMBER) {
+		dev_info(&spi->dev,
+				"spi configuration for secure channel is skipped(FP)\n");
+		return 0;
+	}
+#endif
+
 	if (!spi_get_ctldata(spi)) {
 		if(cs->line != 0) {
 			err = gpio_request_one(cs->line, GPIOF_OUT_INIT_HIGH,
@@ -1409,6 +1406,15 @@ static void exynos_usi_init(struct s3c64xx_spi_driver_data *sdd)
 	 * Due to this feature, the USI_RESET must be cleared (set as '0')
 	 * before transaction starts.
 	 */
+#ifdef CONFIG_ESE_SECURE
+	if (sdd->port_id == CONFIG_ESE_SECURE_SPI_PORT)
+		return;
+#endif
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (sdd->port_id == CONFIG_SENSORS_FP_SPI_NUMBER)
+		return;
+#endif
+
 	writel(USI_RESET, regs + USI_CON);
 }
 
@@ -1417,6 +1423,15 @@ static void s3c64xx_spi_hwinit(struct s3c64xx_spi_driver_data *sdd, int channel)
 	struct s3c64xx_spi_info *sci = sdd->cntrlr_info;
 	void __iomem *regs = sdd->regs;
 	unsigned int val;
+
+#ifdef CONFIG_ESE_SECURE
+	if (channel == CONFIG_ESE_SECURE_SPI_PORT)
+		return;
+#endif
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+	if (channel == CONFIG_SENSORS_FP_SPI_NUMBER)
+		return;
+#endif
 
 	sdd->cur_speed = 0;
 
@@ -1774,10 +1789,18 @@ static int s3c64xx_spi_probe(struct platform_device *pdev)
 			irq, ret);
 		goto err3;
 	}
-
-	writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
-	       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
-	       sdd->regs + S3C64XX_SPI_INT_EN);
+	if (1
+#ifdef CONFIG_ESE_SECURE
+			&& (sdd->port_id != CONFIG_ESE_SECURE_SPI_PORT)
+#endif
+#ifdef ENABLE_SENSORS_FPRINT_SECURE
+			&& (sdd->port_id != CONFIG_SENSORS_FP_SPI_NUMBER)
+#endif
+	) {
+		writel(S3C64XX_SPI_INT_RX_OVERRUN_EN | S3C64XX_SPI_INT_RX_UNDERRUN_EN |
+		       S3C64XX_SPI_INT_TX_OVERRUN_EN | S3C64XX_SPI_INT_TX_UNDERRUN_EN,
+		       sdd->regs + S3C64XX_SPI_INT_EN);
+	}
 
 #ifdef CONFIG_PM
 	pm_runtime_mark_last_busy(&pdev->dev);
@@ -1996,7 +2019,6 @@ static int s3c64xx_spi_resume_operation(struct device *dev)
 	        s3c64xx_spi_runtime_resume(dev);
 
 	if (sci->domain == DOMAIN_TOP) {
-
 		/* Enable the clock */
 #ifdef CONFIG_ARM64_EXYNOS_CPUIDLE
 		exynos_update_ip_idle_status(sdd->idle_ip_index, 0);
@@ -2042,9 +2064,9 @@ static int s3c64xx_spi_suspend(struct device *dev)
 
 	if (sci->dma_mode != DMA_MODE)
 		return 0;
+
 	dev_dbg(dev, "spi suspend is handled in device suspend, dma mode = %d\n",
 			sci->dma_mode);
-
 	return s3c64xx_spi_suspend_operation(dev);
 }
 
@@ -2073,7 +2095,6 @@ static int s3c64xx_spi_resume(struct device *dev)
 
 	dev_dbg(dev, "spi resume is handled in device resume, dma mode = %d\n",
 			sci->dma_mode);
-
 	return s3c64xx_spi_resume_operation(dev);
 }
 
@@ -2088,7 +2109,6 @@ static int s3c64xx_spi_resume_noirq(struct device *dev)
 
 	dev_dbg(dev, "spi resume is handled in resume_noirq, dma mode = %d\n",
 			sci->dma_mode);
-
 	return s3c64xx_spi_resume_operation(dev);
 }
 #else

@@ -161,7 +161,7 @@ enum ABOX_ERAP_TYPE {
 };
 
 enum ABOX_USB_MSG {
-	IPC_USB_PCM_OPEN,
+	IPC_USB_PCM_OPEN,	/* USB -> ABOX */
 	IPC_USB_DESC,
 	IPC_USB_XHCI,
 	IPC_USB_L2,
@@ -170,6 +170,8 @@ enum ABOX_USB_MSG {
 	IPC_USB_SET_INTF,
 	IPC_USB_SAMPLE_RATE,
 	IPC_USB_PCM_BUF,
+	IPC_USB_TASK = 0x80,	/* ABOX -> USB */
+	IPC_USB_STOP_DONE,
 };
 
 struct ERAP_ONOFF_PARAM {
@@ -194,10 +196,10 @@ struct ERAP_RAW_PARAM {
 
 struct ERAP_USB_AUDIO_PARAM {
 	enum ABOX_USB_MSG type;
-	int param1;
-	int param2;
-	int param3;
-	int param4;
+	unsigned int param1;
+	unsigned int param2;
+	unsigned int param3;
+	unsigned int param4;
 };
 
 struct IPC_ERAP_MSG {
@@ -294,6 +296,7 @@ struct IPC_SYSTEM_MSG {
 	int param3;
 	union {
 		int param_s32[0];
+		unsigned long long param_u64[0];
 		char param_bundle[740];
 	} bundle;
 };
@@ -328,7 +331,6 @@ enum IPC_ID {
 	IPC_PCMCAPTURE,
 	IPC_OFFLOAD,
 	IPC_ERAP,
-	RDMA7_BUF_EMPTY = 0x7,
 	WDMA0_BUF_FULL = 0x8,
 	WDMA1_BUF_FULL = 0x9,
 	IPC_ABOX_CONFIG = 0xA,

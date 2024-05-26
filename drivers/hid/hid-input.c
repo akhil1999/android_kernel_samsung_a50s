@@ -1104,15 +1104,9 @@ mapped:
 	if (!bit)
 		return;
 
-	if (device->driver->input_mapped &&
-	    device->driver->input_mapped(device, hidinput, field, usage,
-					 &bit, &max) < 0) {
-		/*
-		 * The driver indicated that no further generic handling
-		 * of the usage is desired.
-		 */
-		return;
-	}
+	if (device->driver->input_mapped && device->driver->input_mapped(device,
+				hidinput, field, usage, &bit, &max) < 0)
+		goto ignore;
 
 	set_bit(usage->type, input->evbit);
 
@@ -1170,11 +1164,9 @@ mapped:
 		set_bit(MSC_SCAN, input->mscbit);
 	}
 
+ignore:
 	return;
 
-ignore:
-	usage->type = 0;
-	usage->code = 0;
 }
 
 void hidinput_hid_event(struct hid_device *hid, struct hid_field *field, struct hid_usage *usage, __s32 value)
@@ -1419,7 +1411,8 @@ static void hidinput_led_worker(struct work_struct *work)
 	if (!buf)
 		return;
 
-	if (!lcd_is_on) {
+	if(!lcd_is_on){
+        printk(KERN_DEBUG "lcd is off, don't report LED event\n");
 		kfree(buf);
 		return;
 	}

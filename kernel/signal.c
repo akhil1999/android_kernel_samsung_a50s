@@ -19,9 +19,7 @@
 #include <linux/sched/task.h>
 #include <linux/sched/task_stack.h>
 #include <linux/sched/cputime.h>
-#include <linux/file.h>
 #include <linux/fs.h>
-#include <linux/proc_fs.h>
 #include <linux/tty.h>
 #include <linux/binfmts.h>
 #include <linux/coredump.h>
@@ -42,8 +40,6 @@
 #include <linux/cn_proc.h>
 #include <linux/compiler.h>
 #include <linux/posix-timers.h>
-#include <linux/oom.h>
-#include <linux/capability.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/signal.h>
@@ -54,6 +50,10 @@
 #include <asm/siginfo.h>
 #include <asm/cacheflush.h>
 #include "audit.h"	/* audit_signal_info() */
+
+#ifdef CONFIG_SAMSUNG_FREECESS
+#include <linux/freecess.h>
+#endif
 
 /*
  * SLAB caches for signal bits.
@@ -1203,6 +1203,28 @@ int do_send_sig_info(int sig, struct siginfo *info, struct task_struct *p,
 {
 	unsigned long flags;
 	int ret = -ESRCH;
+#ifdef CONFIG_OLAF_SUPPORT
+	struct task_struct *t;
+	if ((sig == SIGKILL || sig == SIGTERM || sig == SIGABRT || sig == SIGQUIT)) {
+		for_each_thread(p, t) {
+			if (!strncmp(t->comm, "Jit ", strlen("Jit "))) {
+				if (t->flags & PF_FROZEN) {
+					t->flags |= PF_NOFREEZE;
+					__thaw_task(t);
+				}
+			}
+		}
+	}
+#endif
+
+#ifdef CONFIG_SAMSUNG_FREECESS
+	/*
+	 * System will send SIGIO to the app that locked the file when other apps access the file.
+	 * Report SIGIO to prevent other apps from getting stuck
+	 */
+	if ((sig == SIGKILL || sig == SIGTERM || sig == SIGABRT || sig == SIGQUIT || sig == SIGIO))
+		sig_report(p);
+#endif
 
 	if (lock_task_sighand(p, &flags)) {
 		ret = send_signal(sig, info, p, group);
@@ -1330,11 +1352,8 @@ int group_send_sig_info(int sig, struct siginfo *info, struct task_struct *p)
 	ret = check_kill_permission(sig, info, p);
 	rcu_read_unlock();
 
-	if (!ret && sig) {
+	if (!ret && sig)
 		ret = do_send_sig_info(sig, info, p, true);
-		if (capable(CAP_KILL) && sig == SIGKILL)
-			add_to_oom_reaper(p);
-	}
 
 	return ret;
 }
@@ -1640,14 +1659,6 @@ ret:
 	return ret;
 }
 
-static void do_notify_pidfd(struct task_struct *task)
-{
-	struct pid *pid;
-
-	pid = task_pid(task);
-	wake_up_all(&pid->wait_pidfd);
-}
-
 /*
  * Let a parent know about the death of a child.
  * For a stopped/continued status change, use do_notify_parent_cldstop instead.
@@ -1670,9 +1681,6 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 
 	BUG_ON(!tsk->ptrace &&
 	       (tsk->group_leader != tsk || !thread_group_empty(tsk)));
-
-	/* Wake up all pidfd waiters */
-	do_notify_pidfd(tsk);
 
 	if (sig != SIGCHLD) {
 		/*
@@ -3036,15 +3044,6 @@ COMPAT_SYSCALL_DEFINE4(rt_sigtimedwait, compat_sigset_t __user *, uthese,
 }
 #endif
 
-static inline void prepare_kill_siginfo(int sig, struct siginfo *info)
-{
-	info->si_signo = sig;
-	info->si_errno = 0;
-	info->si_code = SI_USER;
-	info->si_pid = task_tgid_vnr(current);
-	info->si_uid = from_kuid_munged(current_user_ns(), current_uid());
-}
-
 /**
  *  sys_kill - send a signal to a process
  *  @pid: the PID of the process
@@ -3054,123 +3053,13 @@ SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
 
-	prepare_kill_siginfo(sig, &info);
+	info.si_signo = sig;
+	info.si_errno = 0;
+	info.si_code = SI_USER;
+	info.si_pid = task_tgid_vnr(current);
+	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 
 	return kill_something_info(sig, &info, pid);
-}
-
-/*
- * Verify that the signaler and signalee either are in the same pid namespace
- * or that the signaler's pid namespace is an ancestor of the signalee's pid
- * namespace.
- */
-static bool access_pidfd_pidns(struct pid *pid)
-{
-	struct pid_namespace *active = task_active_pid_ns(current);
-	struct pid_namespace *p = ns_of_pid(pid);
-
-	for (;;) {
-		if (!p)
-			return false;
-		if (p == active)
-			break;
-		p = p->parent;
-	}
-
-	return true;
-}
-
-static struct pid *pidfd_to_pid(const struct file *file)
-{
-	if (file->f_op == &pidfd_fops)
-		return file->private_data;
-
-	return tgid_pidfd_to_pid(file);
-}
-
-static int copy_siginfo_from_user_any(siginfo_t *kinfo, siginfo_t __user *info)
-{
-#ifdef CONFIG_COMPAT
-	/*
-	 * Avoid hooking up compat syscalls and instead handle necessary
-	 * conversions here. Note, this is a stop-gap measure and should not be
-	 * considered a generic solution.
-	 */
-	if (in_compat_syscall())
-		return copy_siginfo_from_user32(
-			kinfo, (struct compat_siginfo __user *)info);
-#endif
-	return copy_from_user(kinfo, info, sizeof(siginfo_t));
-}
-
-/**
- * sys_pidfd_send_signal - Signal a process through a pidfd
- * @pidfd:  file descriptor of the process
- * @sig:    signal to send
- * @info:   signal info
- * @flags:  future flags
- *
- * The syscall currently only signals via PIDTYPE_PID which covers
- * kill(<positive-pid>, <signal>. It does not signal threads or process
- * groups.
- * In order to extend the syscall to threads and process groups the @flags
- * argument should be used. In essence, the @flags argument will determine
- * what is signaled and not the file descriptor itself. Put in other words,
- * grouping is a property of the flags argument not a property of the file
- * descriptor.
- *
- * Return: 0 on success, negative errno on failure
- */
-SYSCALL_DEFINE4(pidfd_send_signal, int, pidfd, int, sig,
-		siginfo_t __user *, info, unsigned int, flags)
-{
-	int ret;
-	struct fd f;
-	struct pid *pid;
-	siginfo_t kinfo;
-
-	/* Enforce flags be set to 0 until we add an extension. */
-	if (flags)
-		return -EINVAL;
-
-	f = fdget(pidfd);
-	if (!f.file)
-		return -EBADF;
-
-	/* Is this a pidfd? */
-	pid = pidfd_to_pid(f.file);
-	if (IS_ERR(pid)) {
-		ret = PTR_ERR(pid);
-		goto err;
-	}
-
-	ret = -EINVAL;
-	if (!access_pidfd_pidns(pid))
-		goto err;
-
-	if (info) {
-		ret = copy_siginfo_from_user_any(&kinfo, info);
-		if (unlikely(ret))
-			goto err;
-
-		ret = -EINVAL;
-		if (unlikely(sig != kinfo.si_signo))
-			goto err;
-
-		/* Only allow sending arbitrary signals to yourself. */
-		ret = -EPERM;
-		if ((task_pid(current) != pid) &&
-		    (kinfo.si_code >= 0 || kinfo.si_code == SI_TKILL))
-			goto err;
-	} else {
-		prepare_kill_siginfo(sig, &kinfo);
-	}
-
-	ret = kill_pid_info(sig, &kinfo, pid);
-
-err:
-	fdput(f);
-	return ret;
 }
 
 static int

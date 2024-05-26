@@ -96,15 +96,11 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_module_6b2_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_comp_rst = 0;
 	int gpio_none = 0;
 	int gpio_mclk = 0;
-
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -145,8 +141,6 @@ static int sensor_module_6b2_power_setpin(struct device *dev,
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_OIS_FACTORY, GPIO_SCENARIO_ON);
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_OIS_FACTORY, GPIO_SCENARIO_OFF);
 #endif
-	SET_PIN_INIT(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_ON);
-	SET_PIN_INIT(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_OFF);
 
 	/* FRONT CAMERA - POWER ON */
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst low", PIN_OUTPUT, 0, 0);
@@ -176,20 +170,6 @@ static int sensor_module_6b2_power_setpin(struct device *dev,
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "VDD_VT_CAM_2V8", PIN_REGULATOR, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
 
-	/* SENSOR FACTORY TEST - POWER ON */
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_ON, gpio_reset, "sen_rst low", PIN_OUTPUT, 0, 0);
-	SET_PIN_VOLTAGE(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_ON, gpio_none, "DOVDD_VT_CAM_1V8", PIN_REGULATOR, 1, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_ON, gpio_none, "VDD_VT_CAM_2V8", PIN_REGULATOR, 1, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 0);
-
-	/* SENSOR FACTORY TEST - POWER OFF */
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst", PIN_RESET, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst input", PIN_INPUT, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_OFF, gpio_none, "DOVDD_VT_CAM_1V8", PIN_REGULATOR, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_OFF, gpio_none, "VDD_VT_CAM_2V8", PIN_REGULATOR, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_FACTORY, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
-
 	dev_info(dev, "%s X v4\n", __func__);
 
 	return 0;
@@ -205,7 +185,7 @@ static int __init sensor_module_6b2_probe(struct platform_device *pdev)
 	struct sensor_open_extended *ext;
 	struct exynos_platform_fimc_is_module *pdata;
 	struct device *dev;
-	int ch, t;
+	int ch, vc_idx;
 
 	FIMC_BUG(!fimc_is_dev);
 
@@ -259,12 +239,37 @@ static int __init sensor_module_6b2_probe(struct platform_device *pdev)
 	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
 		module->vc_buffer_offset[ch] = pdata->vc_buffer_offset[ch];
 
-	for (t = VC_BUF_DATA_TYPE_SENSOR_STAT1; t < VC_BUF_DATA_TYPE_MAX; t++) {
-		module->vc_extra_info[t].stat_type = VC_STAT_TYPE_INVALID;
-		module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_INVALID;
-		module->vc_extra_info[t].max_width = 0;
-		module->vc_extra_info[t].max_height = 0;
-		module->vc_extra_info[t].max_element = 0;
+	for (vc_idx = 0; vc_idx < VC_BUF_DATA_TYPE_MAX; vc_idx++) {
+		switch (vc_idx) {
+		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
+			module->vc_extra_info[vc_idx].stat_type = S5K6B2_SENSOR_STAT1_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5K6B2_SENSOR_STAT1_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5K6B2_SENSOR_STAT1_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5K6B2_SENSOR_STAT1_ELEMENT;
+			break;
+		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
+			module->vc_extra_info[vc_idx].stat_type = S5K6B2_GENERAL_STAT1_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5K6B2_GENERAL_STAT1_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5K6B2_GENERAL_STAT1_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5K6B2_GENERAL_STAT1_ELEMENT;
+			break;
+		case VC_BUF_DATA_TYPE_SENSOR_STAT2:
+			module->vc_extra_info[vc_idx].stat_type = S5K6B2_SENSOR_STAT2_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5K6B2_SENSOR_STAT2_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5K6B2_SENSOR_STAT2_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5K6B2_SENSOR_STAT2_ELEMENT;
+			break;
+		case VC_BUF_DATA_TYPE_GENERAL_STAT2:
+			module->vc_extra_info[vc_idx].stat_type = S5K6B2_GENERAL_STAT2_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5K6B2_GENERAL_STAT2_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5K6B2_GENERAL_STAT2_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5K6B2_GENERAL_STAT2_ELEMENT;
+			break;
+		}
 	}
 
 	/* Sensor peri */

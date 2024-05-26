@@ -41,155 +41,128 @@
 #include "fimc-is-device-module-base.h"
 #include "fimc-is-device-module-imx576.h"
 
-// Reference Version : 'IMX576-AAKH5_SAM-Set-26MHz-DPHY_RegisterSetting_ver2.00-9.00_MP_180712.xlsx'
-// Reference Version : 'IMX576-AAKH5_SAM-Set-26MHz-DPHY_RegisterSetting_ver2.00-8.00_MP0_180712.xlsx'
+
+// Reference Version : 'IMX576-AAJH5-S_Standard-DPHY_RegisterSetting_ver2.00-1.00_b5_181228_4.xlsx'
 
 /*
  * [Mode Information]
  *	- Global Setting -
  *
  *	- 2X2 BINNING -
- *	[0] REG_A: Single Still Preview (4:3)   : 2832x2124@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[1] REG_B: Single Still Preview (16:9)  : 2832x1592@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[2] REG_C: Single Still Preview (18.5:9): 2832x1376@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[3] REG_D: Single Still Preview (1:1)   : 2124x2124@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
+ *	[0] REG_A : Single Still Preview (4:3)    : 2880x2156@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 2112
+ *	[1] REG_B : Single Still Preview (16:9)   : 2880x1620@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 1600
+ *	[2] REG_D : Single Still Preview (19.5:9) : 2880x1332@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 1312
+ *	[3] REG_E : Single Still Preview (1:1)    : 2156x2156@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 2112
  *
  *	- QBC_HDR -
- *	[4] REG_E: Single Still 3HDR (4:3)      : 2832x2124@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[5] REG_F: Single Still 3HDR (16:9)     : 2832x1592@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[6] REG_G: Single Still 3HDR (18.5:9)   : 2832x1376@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[7] REG_H: Single Still 3HDR (1:1)      : 2124x2124@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
+ *	[4] REG_N : Single Still 3HDR (4:3)    : 2880x2156@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 2112
+ *	[5] REG_O : Single Still 3HDR (16:9)   : 2880x1620@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 1600
+ *	[6] REG_Q : Single Still 3HDR (19.5:9) : 2880x1332@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 1312
+ *	[7] REG_R : Single Still 3HDR (1:1)    : 2156x2156@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 2112
  *
  *	- QBC_REMOSAIC -
- *	[8] REG_I: Single Still Capture (4:3)   : 5664X4248@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[9] REG_J: Single Still Capture (16:9)  : 5664X3184@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[10]REG_K: Single Still Capture (18.5:9): 5664X2752@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[11]REG_L: Single Still Capture (1:1)   : 4248X4248@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
+ *	[8] REG_F : Single Still Capture (4:3)    : 5760x4312@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 2112
+ *	[9] REG_G : Single Still Capture (16:9)   : 5760x3240@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 1600
+ *	[10]REG_I : Single Still Capture (19.5:9) : 5760x2664@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 1312
+ *	[11]REG_J : Single Still Capture (1:1)    : 4312x4312@30,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2300 PDAF : 356 x 2112
  *
  *	- Super Slow Motion (SSM) -
- *	[12]REG_M: Super Slow Motion (16:9)     : 1872x1052@240,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[13]REG_N: Super Slow Motion (16:9)     : 1920x1080@120,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[14]REG_O: Super Slow Motion (16:9)     : 1280x720 @240,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[15]REG_U: Super Slow Motion (16:9)     : 1280x720 @120,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
+ *	[12]REG_U : Super Slow Motion (16:9) : 1872x1052 @240,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2296
+ *	[13]REG_T : Super Slow Motion (16:9) : 2880x1620 @120,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2296
  *
  *	- FAST AE -
- *	[16]REG_R: Single Preview Fast(4:3)     : 2832x2124@117,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[17]REG_S: Single Preview Fast(4:3)     : 2832x2124@ 60,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
- *	[18]REG_T: Single Preview Fast(16:9)    : 2832x1592@120,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2054
+ *	[14]REG_S : Single Preview Fast(4:3) : 2880x2156@120,  MIPI lane: 4, MIPI data rate(Mbps/lane) Sensor: 2296
  */
 
+
 static struct fimc_is_sensor_cfg config_imx576[] = {
-	/* 0 : 2832x2124@30fps 2X2BIN */
-	FIMC_IS_SENSOR_CFG(2832, 2124,  30, 0, 0, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2832, 2124), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 1 : 2832x1592@30fps 2X2BIN */
-	FIMC_IS_SENSOR_CFG(2832, 1592,  30, 0, 1, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2832, 1592), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 2 : 2832x1376@30fps 2X2BIN */
-	FIMC_IS_SENSOR_CFG(2832, 1376,  30, 0, 2, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2832, 1376), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 3 : 2124x2124@30fps 2X2BIN */
-	FIMC_IS_SENSOR_CFG(2124, 2124,  30, 0, 3, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  2124, 2124), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 4 : 2832x2124@30fps QBC_HDR */
-	FIMC_IS_SENSOR_CFG(2832, 2124, 30, 0, 4, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2832, 2124), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 5 : 2832x1592@30fps QBC_HDR */
-	FIMC_IS_SENSOR_CFG(2832, 1592, 30, 0, 5, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2832, 1592), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 6 : 2832x1376@30fps QBC_HDR */
-	FIMC_IS_SENSOR_CFG(2832,  1376, 30, 0, 6, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2832, 1376), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 7 : 2124x2124@30fps QBC_HDR */
-	FIMC_IS_SENSOR_CFG(2124, 2124,  30, 0, 7, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 2124, 2124), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 8 : 5664X4248@30fps QBC_REMOSAIC */
-	FIMC_IS_SENSOR_CFG(5664, 4248,  30, 0, 8, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 5664, 4248), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 9 : 5664X3184@30fps QBC_REMOSAIC */
-	FIMC_IS_SENSOR_CFG(5664, 3184,  30, 0, 9, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 5664, 3184), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 10 : 5664X2752@30fps QBC_REMOSAIC */
-	FIMC_IS_SENSOR_CFG(5664, 2752,  30, 0, 10, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10, 5664, 2752), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 11 : 4248X4248@30fps QBC_REMOSAIC */
-	FIMC_IS_SENSOR_CFG(4248,  4248,  30, 0, 11, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  4248,  4248), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 12 : 1872x1052@240fps Super Slow Motion (SSM) */
-	FIMC_IS_SENSOR_CFG(1872,  1052,  240, 0, 12, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
+	/* 0 : 2880x2156@30fps 2X2BIN */
+	FIMC_IS_SENSOR_CFG(2880, 2156,  30, 0, 0, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2880, 2156), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 2112), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 2112),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 2112)),
+	/* 1 : 2880x1620@30fps 2X2BIN */
+	FIMC_IS_SENSOR_CFG(2880, 1620,  30, 0, 1, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2880, 1620), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 1600), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 1600),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 1600)),
+	/* 2 : 2880x1332@30fps 2X2BIN */
+	FIMC_IS_SENSOR_CFG(2880, 1332,  30, 0, 2, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2880, 1332), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 1312), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 1312),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 1312)),
+	/* 3 : 2156x2156@30fps 2X2BIN */
+	FIMC_IS_SENSOR_CFG(2156, 2156,  30, 0, 3, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10,  2156, 2156), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 268, 2112), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 268, 2112),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 268, 2112)),
+	/* 4 : 2880x2156@30fps QBC_HDR */
+	FIMC_IS_SENSOR_CFG(2880, 2156, 30, 0, 4, CSI_DATA_LANES_4, 2054, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2880, 2156), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 2112), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 2112),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 2112)),
+	/* 5 : 2880x1620@30fps QBC_HDR */
+	FIMC_IS_SENSOR_CFG(2880, 1620, 30, 0, 5, CSI_DATA_LANES_4, 2054, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2880, 1620), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 1600), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 1600),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 1600)),
+	/* 6 : 2880x1332@30fps QBC_HDR */
+	FIMC_IS_SENSOR_CFG(2880,  1332, 30, 0, 6, CSI_DATA_LANES_4, 2054, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2880, 1332), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 1312), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 1312),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 1312)),
+	/* 7 : 2156x2156@30fps QBC_HDR */
+	FIMC_IS_SENSOR_CFG(2156, 2156,  30, 0, 7, CSI_DATA_LANES_4, 2054, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2156, 2156), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 268, 2112), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 268, 2112),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 268, 2112)),
+	/* 8 : 5760x4312@30fps QBC_REMOSAIC */
+	FIMC_IS_SENSOR_CFG(5760, 4312,  30, 0, 8, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 5760, 4312), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 2112), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 2112),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 2112)),
+	/* 9 : 5760x3240@30fps QBC_REMOSAIC */
+	FIMC_IS_SENSOR_CFG(5760, 3240,  30, 0, 9, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 5760, 3240), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 1600), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 1600),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 1600)),
+	/* 10 : 5760x2664@30fps QBC_REMOSAIC */
+	FIMC_IS_SENSOR_CFG(5760, 2664,  30, 0, 10, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 5760, 2664), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 356, 1312), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 356, 1312),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 356, 1312)),
+	/* 11 : 4312x4312@30fps QBC_REMOSAIC */
+	FIMC_IS_SENSOR_CFG(4312,  4312,  30, 0, 11, CSI_DATA_LANES_4, 2300, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10,  4312,  4312), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 268, 2112), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 268, 2112),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 268, 2112)),
+	/* 12 : 1872x1052@240 Super Slow Motion (SSM) */
+	FIMC_IS_SENSOR_CFG(1872,  1052,  240, 0, 12, CSI_DATA_LANES_4, 2296, CSI_MODE_DT_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10,  1872,  1052), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 13 : 1920x1080@120fps Super Slow Motion (SSM) */
-	FIMC_IS_SENSOR_CFG(1920,  1080,  120, 0, 13, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  1920,  1080), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+	/* 13 : 2880x1620@120fps Super Slow Motion (SSM) */
+	FIMC_IS_SENSOR_CFG(2880,  1620,	120, 0, 13, CSI_DATA_LANES_4, 2296, CSI_MODE_DT_ONLY, PD_NONE,
+		VC_IN(0, HW_FORMAT_RAW10,  2880,  1620), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 14 : 1280x720 @240fps Super Slow Motion (SSM) */
-	FIMC_IS_SENSOR_CFG(1280,  720,  240, 0, 14, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  1280,  720), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 15 : 1280x720 @120fps Super Slow Motion (SSM) */
-	FIMC_IS_SENSOR_CFG(1280,  720,	120, 0, 15, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  1280,  720), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 16 : 2832x2124@117fps FAST AE */
-	FIMC_IS_SENSOR_CFG(2832,  2124,  117, 0, 16, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  2832,  2124), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 17 : 2832x2124@60fps FAST AE */
-	FIMC_IS_SENSOR_CFG(2832,  2124,  60, 0, 17, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  2832,  2124), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
-		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
-		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
-	/* 18 : 2832x1592@120fps FAST AE */
-	FIMC_IS_SENSOR_CFG(2832,  1592,  120, 0, 18, CSI_DATA_LANES_4, 2054, CSI_MODE_DT_ONLY, PD_NONE,
-		VC_IN(0, HW_FORMAT_RAW10,  2832,  1592), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+	/* 14 : 2880x2156@120fps FAST AE */
+	FIMC_IS_SENSOR_CFG(2880,  2156,  120, 0, 14, CSI_DATA_LANES_4, 2296, CSI_MODE_DT_ONLY, PD_NONE,
+		VC_IN(0, HW_FORMAT_RAW10,  2880,  2156), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
 		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(2, HW_FORMAT_EMBEDDED_8BIT, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
@@ -224,20 +197,14 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_imx576_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
-	int gpio_mclk = 0;
+	struct fimc_is_core *core;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
-	int gpio_camcore_1p05_en = 0;
-	int ret;
-	struct fimc_is_core *core;
 
 	FIMC_BUG(!dev);
 
-	dnode = dev->of_node;
-
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
-
 	if (!core) {
 		err("core is NULL");
 		return -EINVAL;
@@ -245,30 +212,13 @@ static int sensor_imx576_power_setpin(struct device *dev,
 
 	dev_info(dev, "%s E v4\n", __func__);
 
-	gpio_mclk = of_get_named_gpio(dnode, "gpio_mclk", 0);
-	if (!gpio_is_valid(gpio_mclk)) {
-		dev_err(dev, "failed to get gpio_mclk\n");
-		return -EINVAL;
-	}
-
-	gpio_request_one(gpio_mclk, GPIOF_OUT_INIT_LOW, "CAM_MCLK_OUTPUT_LOW");
-	gpio_free(gpio_mclk);
-
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
 	if (!gpio_is_valid(gpio_reset)) {
 		dev_err(dev, "failed to get PIN_RESET\n");
 		return -EINVAL;
-	}
-
-	gpio_request_one(gpio_reset, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
-	gpio_free(gpio_reset);
-
-	gpio_camcore_1p05_en = of_get_named_gpio(dnode, "gpio_camcore_1p05_en", 0);
-	if (!gpio_is_valid(gpio_camcore_1p05_en)) {
-		dev_info(dev, "failed to get gpio_camcore_1p05_en\n");
-	} else {
-		gpio_request_one(gpio_camcore_1p05_en, GPIOF_OUT_INIT_LOW, "CAMCORE_1P05_EN");
-		gpio_free(gpio_camcore_1p05_en);
+	}else{
+		gpio_request_one(gpio_reset, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
+		gpio_free(gpio_reset);
 	}
 
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON);
@@ -277,32 +227,36 @@ static int sensor_imx576_power_setpin(struct device *dev,
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_OFF);
 
 	/* Normal on */
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "vdd_ldo41", PIN_REGULATOR, 1, 0); /* VDD_RCAM1_A2P8 */
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_camcore_1p05_en, "cam_core high", PIN_OUTPUT, 1, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "vdd_ldo42", PIN_REGULATOR, 1, 0); /* VDD_RCAM1_IO_1P8 */
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "vdd_ldo38", PIN_REGULATOR, 1, 0); /* VDD_RCAM1_AF_2P8 */
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst low", PIN_OUTPUT, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "CAM_VDDIO_1P8", PIN_REGULATOR, 1, 0); /* CAM_VDDIO_1P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "RCAM1_AVDD_2P8", PIN_REGULATOR, 1, 0); /* RCAM1_AVDD_2P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "RCAM1_DVDD_1P05", PIN_REGULATOR, 1, 0); /* RCAM1_DVDD_1P05 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "vdd_ldo37", PIN_REGULATOR, 1, 5000); /* RCAM1_AFVDD_2P8 */
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "pin", PIN_FUNCTION, 2, 1000);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, SRT_ACQUIRE,
 			&core->shared_rsc_slock[SHARED_PIN0], &core->shared_rsc_count[SHARED_PIN0], 1);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_reset, "sen_rst high", PIN_OUTPUT, 1, 10000);
 
 	/* Normal off */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst", PIN_OUTPUT, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "delay", PIN_NONE, 0, 5000);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 1, 0);
 	SET_PIN_SHARED(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, SRT_RELEASE,
 			&core->shared_rsc_slock[SHARED_PIN0], &core->shared_rsc_count[SHARED_PIN0], 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "pin", PIN_FUNCTION, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_reset, "sen_rst", PIN_OUTPUT, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "vdd_ldo41", PIN_REGULATOR, 0, 0); /* VDD_RCAM1_A2P8 */
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_camcore_1p05_en, "cam_core high", PIN_OUTPUT, 0, 0);
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "vdd_ldo42", PIN_REGULATOR, 0, 0); /* VDD_RCAM1_IO_1P8 */
-	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "vdd_ldo38", PIN_REGULATOR, 0, 0); /* VDD_RCAM1_AF_2P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "RCAM1_AVDD_2P8", PIN_REGULATOR, 0, 0); /* RCAM1_AVDD_2P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "RCAM1_DVDD_1P05", PIN_REGULATOR, 0, 0); /* RCAM1_DVDD_ 1P05 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "CAM_VDDIO_1P8", PIN_REGULATOR, 0, 0); /* CAM_VDDIO_1P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "vdd_ldo37", PIN_REGULATOR, 0, 0); /* RCAM1_AFVDD_2P8 */
 
 
 	/* READ_ROM - POWER ON */
-	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_ON, gpio_none, "vdd_ldo38", PIN_REGULATOR, 1, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_ON, gpio_none, "vdd_ldo37", PIN_REGULATOR, 1, 0); /* RCAM1_AFVDD_2P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_ON, gpio_none, "CAM_VDDIO_1P8", PIN_REGULATOR, 1, 5000); /* CAM_VDDIO_1P8 */
 	/* READ_ROM - POWER OFF */
-	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_OFF, gpio_none, "vdd_ldo38", PIN_REGULATOR, 0, 0);
+	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_OFF, gpio_none, "vdd_ldo37", PIN_REGULATOR, 0, 0); /* RCAM1_AFVDD_2P8 */
+	SET_PIN(pdata, SENSOR_SCENARIO_READ_ROM, GPIO_SCENARIO_OFF, gpio_none, "CAM_VDDIO_1P8", PIN_REGULATOR, 0, 0); /* CAM_VDDIO_1P8 */
 
 	dev_info(dev, "%s X v4\n", __func__);
 
@@ -312,6 +266,7 @@ static int sensor_imx576_power_setpin(struct device *dev,
 static int __init sensor_module_imx576_probe(struct platform_device *pdev)
 {
 	int ret = 0;
+	bool use_pdaf = false;
 	struct fimc_is_core *core;
 	struct v4l2_subdev *subdev_module;
 	struct fimc_is_module_enum *module;
@@ -319,7 +274,7 @@ static int __init sensor_module_imx576_probe(struct platform_device *pdev)
 	struct sensor_open_extended *ext;
 	struct exynos_platform_fimc_is_module *pdata;
 	struct device *dev;
-	int ch, vc_idx;
+	int ch, t;
 	struct pinctrl_state *s;
 
 	FIMC_BUG(!fimc_is_dev);
@@ -331,6 +286,12 @@ static int __init sensor_module_imx576_probe(struct platform_device *pdev)
 	}
 
 	dev = &pdev->dev;
+
+	if (of_property_read_bool(dev->of_node, "use_pdaf")) {
+		use_pdaf = true;
+	}
+
+	probe_info("%s use_pdaf(%d)\n", __func__, use_pdaf);
 
 	fimc_is_module_parse_dt(dev, sensor_imx576_power_setpin);
 
@@ -352,8 +313,8 @@ static int __init sensor_module_imx576_probe(struct platform_device *pdev)
 	module->subdev = subdev_module;
 	module->device = pdata->id;
 	module->client = NULL;
-	module->active_width = 5664;
-	module->active_height = 4248;
+	module->active_width = 5760;
+	module->active_height = 4312;
 	module->margin_left = 0;
 	module->margin_right = 0;
 	module->margin_top = 0;
@@ -369,6 +330,40 @@ static int __init sensor_module_imx576_probe(struct platform_device *pdev)
 	module->cfgs = ARRAY_SIZE(config_imx576);
 	module->cfg = config_imx576;
 	module->ops = NULL;
+
+	for (ch = 1; ch < CSI_VIRTUAL_CH_MAX; ch++)
+		module->vc_buffer_offset[ch] = pdata->vc_buffer_offset[ch];
+
+	for (t = VC_BUF_DATA_TYPE_SENSOR_STAT1; t < VC_BUF_DATA_TYPE_MAX; t++) {
+		module->vc_extra_info[t].stat_type = VC_STAT_TYPE_INVALID;
+		module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_INVALID;
+		module->vc_extra_info[t].max_width = 0;
+		module->vc_extra_info[t].max_height = 0;
+		module->vc_extra_info[t].max_element = 0;
+
+		if (IS_ENABLED(CONFIG_CAMERA_PAFSTAT)) {
+			switch (t) {
+			case VC_BUF_DATA_TYPE_GENERAL_STAT1:
+				module->vc_extra_info[t].stat_type
+					= VC_STAT_TYPE_PAFSTAT_FLOATING;
+
+				module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_IMX_2X1OCL_1_TAIL;
+				module->vc_extra_info[t].max_width = 356;
+				module->vc_extra_info[t].max_height = 2112;
+				module->vc_extra_info[t].max_element = 2;
+				break;
+			case VC_BUF_DATA_TYPE_GENERAL_STAT2:
+				module->vc_extra_info[t].stat_type
+					= VC_STAT_TYPE_PAFSTAT_STATIC;
+
+				module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_IMX_2X1OCL_1_TAIL;
+				module->vc_extra_info[t].max_width = 356;
+				module->vc_extra_info[t].max_height = 2112;
+				module->vc_extra_info[t].max_element = 2;
+				break;
+			}
+		}
+	}
 
 	/* Sensor peri */
 	module->private_data = kzalloc(sizeof(struct fimc_is_device_sensor_peri), GFP_KERNEL);

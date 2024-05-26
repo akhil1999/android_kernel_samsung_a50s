@@ -51,29 +51,46 @@ static enum hrtimer_restart csis_early_buf_done(struct hrtimer *timer)
 
 inline void csi_frame_start_inline(struct fimc_is_device_csi *csi)
 {
+	u32 inc = 1;
+	u32 fcount, hw_fcount;
+	struct fimc_is_device_sensor *sensor;
+	u32 hashkey;
+
 	/* frame start interrupt */
 	csi->sw_checker = EXPECT_FRAME_END;
-	atomic_inc(&csi->fcount);
-	dbg_isr("<%d %d ", csi, csi->instance,
-			atomic_read(&csi->fcount));
-	atomic_inc(&csi->vvalid);
-	{
-		u32 vsync_cnt = atomic_read(&csi->fcount);
-		struct fimc_is_device_sensor *sensor;
-		u32 hashkey;
 
-		sensor = v4l2_get_subdev_hostdata(*csi->subdev);
-		if (!sensor) {
-			err("sensor is NULL");
-			BUG();
+	hw_fcount = csi_hw_g_fcount(csi->base_reg, CSI_VIRTUAL_CH_0);
+	inc = hw_fcount - csi->hw_fcount;
+	csi->hw_fcount = hw_fcount;
+
+	if (unlikely(inc != 1)) {
+		if (inc > 1) {
+			mwarn("[CSI] interrupt lost(%d)", csi, inc);
+		} else if (inc == 0) {
+			mwarn("[CSI] hw_fcount(%d) is not incresed",
+					csi, hw_fcount);
+			inc = 1;
 		}
-
-		hashkey = vsync_cnt % FIMC_IS_TIMESTAMP_HASH_KEY;
-		sensor->timestamp[hashkey] = fimc_is_get_timestamp();
-		sensor->timestampboot[hashkey] = fimc_is_get_timestamp_boot();
-
-		v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VSYNC, &vsync_cnt);
 	}
+
+	fcount = atomic_add_return(inc, &csi->fcount);
+
+	dbg_isr("[F%d] S\n", csi, fcount);
+	atomic_set(&csi->vvalid, 1);
+	sensor = v4l2_get_subdev_hostdata(*csi->subdev);
+	if (!sensor) {
+		err("sensor is NULL");
+		BUG();	
+	}
+	
+	sensor->fcount = fcount;
+	hashkey = fcount % FIMC_IS_TIMESTAMP_HASH_KEY;
+	sensor->timestamp[hashkey] = fimc_is_get_timestamp();
+	sensor->timestampboot[hashkey] = fimc_is_get_timestamp_boot();
+
+	v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VSYNC, &fcount);
+
+	wake_up(&csi->wait_queue);
 
 	tasklet_schedule(&csi->tasklet_csis_str);
 }
@@ -88,17 +105,14 @@ static inline void csi_frame_line_inline(struct fimc_is_device_csi *csi)
 
 static inline void csi_frame_end_inline(struct fimc_is_device_csi *csi)
 {
-	dbg_isr("%d %d>", csi, csi->instance,
-			atomic_read(&csi->fcount));
+	u32 fcount = atomic_read(&csi->fcount);
+
+	dbg_isr("[F%d] E\n", csi, fcount);
 	/* frame end interrupt */
 	csi->sw_checker = EXPECT_FRAME_START;
-	atomic_dec(&csi->vvalid);
-	{
-		u32 vsync_cnt = atomic_read(&csi->fcount);
-
-		atomic_set(&csi->vblank_count, vsync_cnt);
-		v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VBLANK, &vsync_cnt);
-	}
+	atomic_set(&csi->vvalid, 0);
+	atomic_set(&csi->vblank_count, fcount);
+	v4l2_subdev_notify(*csi->subdev, CSI_NOTIFY_VBLANK, &fcount);
 
 	tasklet_schedule(&csi->tasklet_csis_end);
 }
@@ -716,6 +730,9 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 {
 	const char *err_str = NULL;
 	int vc, err;
+#ifdef USE_CAMERA_HW_BIG_DATA
+	bool err_report = false;
+#endif
 
 	for (vc = CSI_VIRTUAL_CH_0; vc < CSI_VIRTUAL_CH_MAX; vc++) {
 		/* Skip error handling if there's no error in this virtual ch. */
@@ -760,6 +777,12 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
 				err_str = GET_STR(CSIS_ERR_DMA_ERR_DMAFIFO_FULL);
 #if defined(OVERFLOW_PANIC_ENABLE_CSIS)
+#ifdef USE_CAMERA_HW_BIG_DATA
+				fimc_is_vender_csi_err_handler(csi);
+#ifdef CAMERA_HW_BIG_DATA_FILE_IO
+				fimc_is_sec_copy_err_cnt_to_file();
+#endif
+#endif
 				exynos_bcm_dbg_stop(CAMERA_DRIVER);
 
 				panic("[DMA%d][VC P%d, L%d] CSIS error!! %s",
@@ -772,6 +795,12 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
 				err_str = GET_STR(CSIS_ERR_DMA_ERR_TRXFIFO_FULL);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
+#ifdef USE_CAMERA_HW_BIG_DATA
+				fimc_is_vender_csi_err_handler(csi);
+#ifdef CAMERA_HW_BIG_DATA_FILE_IO
+				fimc_is_sec_copy_err_cnt_to_file();
+#endif
+#endif
 				panic("CSIS error!! %s", err_str);
 #endif
 				break;
@@ -779,6 +808,12 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
 				err_str = GET_STR(CSIS_ERR_DMA_ERR_BRESP_ERR);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
+#ifdef USE_CAMERA_HW_BIG_DATA
+				fimc_is_vender_csi_err_handler(csi);
+#ifdef CAMERA_HW_BIG_DATA_FILE_IO
+				fimc_is_sec_copy_err_cnt_to_file();
+#endif
+#endif
 				panic("CSIS error!! %s", err_str);
 #endif
 				break;
@@ -799,10 +834,21 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				csi->dma_subdev[vc]->vc_ch[csi->scm], vc,
 				atomic_read(&csi->fcount), err_str, err);
 
+#ifdef USE_CAMERA_HW_BIG_DATA
+			/* temporarily hwparam count except CSIS_ERR_DMA_ABORT_DONE */
+			if ((err != CSIS_ERR_DMA_ABORT_DONE) && err >= CSIS_ERR_ID  && err < CSIS_ERR_END)
+				err_report = true;
+#endif
+
 			/* Check next bit */
 			err = find_next_bit((unsigned long *)&csi->error_id[vc], CSIS_ERR_END, err + 1);
 		}
 	}
+
+#ifdef USE_CAMERA_HW_BIG_DATA
+	if (err_report)
+		fimc_is_vender_csi_err_handler(csi);
+#endif
 }
 
 static void csi_err_handle(struct fimc_is_device_csi *csi)
@@ -1030,8 +1076,14 @@ static irqreturn_t fimc_is_isr_csi(int irq, void *data)
 	} else if (frame_start) {
 		/* W/A: Skip start tasklet at interrupt lost case */
 		if (csi->sw_checker != EXPECT_FRAME_START) {
-			warn("[CSIS%d] Lost end interupt\n",
+			warn("[CSIS%d] Lost end interrupt\n",
 					csi->instance);
+			/*
+			 * Even though it skips to start tasklet,
+			 * framecount of CSI device should be increased
+			 * to match with chain device including DDK.
+			 */
+			atomic_inc(&csi->fcount);
 			goto clear_status;
 		}
 		csi_frame_start_inline(csi);
@@ -1039,8 +1091,14 @@ static irqreturn_t fimc_is_isr_csi(int irq, void *data)
 	} else if (frame_end) {
 		/* W/A: Skip end tasklet at interrupt lost case */
 		if (csi->sw_checker != EXPECT_FRAME_END) {
-			warn("[CSIS%d] Lost start interupt\n",
+			warn("[CSIS%d] Lost start interrupt\n",
 					csi->instance);
+			/*
+			 * Even though it skips to start tasklet,
+			 * framecount of CSI device should be increased
+			 * to match with chain device including DDK.
+			 */
+			atomic_inc(&csi->fcount);
 
 			/*
 			 * If LOST_FS_VC_ERR is happened, there is only end interrupt
@@ -1511,6 +1569,8 @@ static int csi_stream_on(struct v4l2_subdev *subdev,
 		goto err_set_phy;
 	}
 
+	csi->hw_fcount = csi_hw_g_fcount(csi->base_reg, CSI_VIRTUAL_CH_0);
+
 	csi_hw_s_lane(base_reg, &csi->image, sensor_cfg->lanes, sensor_cfg->mipi_speed);
 	csi_hw_s_control(base_reg, CSIS_CTRL_INTERLEAVE_MODE, sensor_cfg->interleave_mode);
 	csi_hw_s_control(base_reg, CSIS_CTRL_PIXEL_ALIGN_MODE, 0x1);
@@ -1754,7 +1814,7 @@ static int csi_s_stream(struct v4l2_subdev *subdev, int enable)
 p_err:
 	mdbgd_front("%s(%d)\n", csi, __func__, ret);
 
-	return 0;
+	return ret;
 }
 
 static int csi_s_param(struct v4l2_subdev *subdev, struct v4l2_streamparm *param)
@@ -2121,6 +2181,8 @@ int fimc_is_csi_probe(void *parent, u32 instance)
 	csi->workqueue = alloc_workqueue("fimc-csi/[H/U]", WQ_HIGHPRI | WQ_UNBOUND, 0);
 	if (!csi->workqueue)
 		probe_warn("failed to alloc CSI own workqueue, will be use global one");
+
+	init_waitqueue_head(&csi->wait_queue);
 
 	v4l2_subdev_init(subdev_csi, &subdev_ops);
 	v4l2_set_subdevdata(subdev_csi, csi);

@@ -13,8 +13,14 @@
 
 #include <linux/device.h>
 #include <linux/irqreturn.h>
+#include <linux/scatterlist.h>
 #include <sound/soc.h>
 #include <sound/samsung/abox_ipc.h>
+
+#ifdef CONFIG_SND_SOC_SAMSUNG_AUDIO
+#define CHANGE_DEV_PRINT
+#include <sound/samsung/sec_audio_debug.h>
+#endif
 
 /**
  * abox irq handler type definition
@@ -96,27 +102,49 @@ extern int abox_register_irq_handler(struct device *dev, int ipc_id,
  */
 extern int abox_hw_params_fixup_helper(struct snd_soc_pcm_runtime *rtd,
 		struct snd_pcm_hw_params *params, int stream);
+
+/**
+ * Request or release dram during cpuidle (count based API)
+ * @param[in]   pdev_abox       pointer to abox platform device
+ * @param[in]   id              key which is used as unique handle
+ * @param[in]   on              true for requesting, false on otherwise
+ */
+extern void abox_request_dram_on(struct platform_device *pdev_abox, void *id, bool on);
+
 /**
  * iommu map for abox
  * @param[in]	dev	pointer to abox device
  * @param[in]	iova	device virtual address
- * @param[in]	vaddr	kernel virtual address
- * @param[in]	size	size of the mapping area
+ * @param[in]	addr	kernel physical address
+ * @param[in]	bytes	size of the mapping area
+ * @param[in]	area	kernel virtual address
  * @return	error code if any
  */
 extern int abox_iommu_map(struct device *dev, unsigned long iova,
-		phys_addr_t paddr, size_t size);
+		phys_addr_t addr, size_t bytes, void *area);
+
+/**
+ * iommu map for abox
+ * @param[in]	dev	pointer to abox device
+ * @param[in]	iova	device virtual address
+ * @param[in]	sg	scatter list
+ * @param[in]	nents	nents of scatter list
+ * @param[in]	prot	protection parameter
+ * @param[in]	bytes	size of the mapping area
+ * @param[in]	area	kernel virtual address
+ * @return	error code if any
+ */
+extern int abox_iommu_map_sg(struct device *dev, unsigned long iova,
+		struct scatterlist *sg, unsigned int nents,
+		int prot, size_t bytes, void *area);
 
 /**
  * iommu unmap for abox
  * @param[in]	dev	pointer to abox device
  * @param[in]	iova	device virtual address
- * @param[in]	vaddr	kernel virtual address
- * @param[in]	size	size of the mapping area
  * @return	error code if any
  */
-extern int abox_iommu_unmap(struct device *dev, unsigned long iova,
-		phys_addr_t paddr, size_t size);
+extern int abox_iommu_unmap(struct device *dev, unsigned long iova);
 
 /**
  * query physical address from device virtual address
@@ -171,13 +199,19 @@ static inline int abox_hw_params_fixup_helper(struct snd_soc_pcm_runtime *rtd,
 }
 
 static inline int abox_iommu_map(struct device *dev, unsigned long iova,
-		phys_addr_t paddr, size_t size)
+		phys_addr_t addr, size_t bytes, void *addr)
 {
 	return -ENODEV;
 }
 
-static inline int abox_iommu_unmap(struct device *dev, unsigned long iova,
-		phys_addr_t paddr, size_t size)
+static inline int abox_iommu_unmap(struct device *dev, unsigned long iova)
+{
+	return -ENODEV;
+}
+
+static inline int abox_iommu_map_sg(struct device *dev, unsigned long iova,
+		struct scatterlist *sg, unsigned int nents,
+		int prot, size_t bytes, void *area)
 {
 	return -ENODEV;
 }

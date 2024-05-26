@@ -526,7 +526,6 @@ static void *fimc_is_ion_init(struct platform_device *pdev)
 	mutex_init(&ctx->lock);
 
 	return ctx;
-
 }
 
 static void fimc_is_ion_deinit(void *ctx)
@@ -538,30 +537,20 @@ static void fimc_is_ion_deinit(void *ctx)
 }
 
 static struct fimc_is_priv_buf *fimc_is_ion_alloc(void *ctx,
-		size_t size, size_t align, const char *heapname)
+		size_t size, const char *heapname, unsigned int flags)
 {
 	struct fimc_is_ion_ctx *alloc_ctx = ctx;
 	struct fimc_is_priv_buf *buf;
-	/* const char *heapname = "ion_system_heap"; */
 	int ret = 0;
-	long flags = alloc_ctx->flags;
 
 	buf = vzalloc(sizeof(*buf));
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
-
-	if (!heapname)
-		heapname = "ion_system_heap";
-	else
-		info("%s: heapname[%s], size[%#lx\\n", __func__, heapname, size);
-
 	size = PAGE_ALIGN(size);
 
-	if (!strncmp(heapname, "camera_heap", 11))
-		flags |= ION_FLAG_PROTECTED;
-
-	buf->dma_buf = ion_alloc_dmabuf(heapname, size, flags);
+	buf->dma_buf = ion_alloc_dmabuf(heapname ? heapname : "ion_system_heap",
+				size, flags ? flags : alloc_ctx->flags);
 	if (IS_ERR(buf->dma_buf)) {
 		ret = -ENOMEM;
 		goto err_alloc;

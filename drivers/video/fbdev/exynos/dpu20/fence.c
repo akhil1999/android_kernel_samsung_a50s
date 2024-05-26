@@ -132,14 +132,15 @@ err:
 	return fd;
 }
 
-void decon_wait_fence(struct sync_file *sync_file)
+int decon_wait_fence(struct sync_file *sync_file)
 {
 	int err = sync_file_wait(sync_file, 900);
 	if (err >= 0)
-		return;
+		return err;
 
 	if (err < 0)
 		decon_warn("error waiting on acquire fence: %d\n", err);
+	return err;
 }
 
 void decon_signal_fence(struct decon_device *decon)
@@ -284,7 +285,7 @@ int decon_create_fence(struct decon_device *decon, struct sync_file **sync_file)
 	return fd;
 }
 
-void decon_wait_fence(struct dma_fence *fence)
+int decon_wait_fence(struct dma_fence *fence)
 {
 	int err = 0;
 
@@ -294,6 +295,8 @@ void decon_wait_fence(struct dma_fence *fence)
 	err = dma_fence_wait_timeout(fence, false, 900);
 	if (err < 0)
 		decon_warn("%s: error waiting on acquire fence: %d\n", acq_fence_log, err);
+
+	return err;
 }
 
 void decon_signal_fence(struct dma_fence *fence)

@@ -92,21 +92,15 @@ static const struct v4l2_subdev_ops subdev_ops = {
 	.pad = &pad_ops
 };
 
-static int sensor_module_3m2_power_setpin(struct platform_device *pdev,
+static int sensor_module_3m2_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
 #ifdef CONFIG_SOC_EXYNOS7870
 	int gpio_camio_1p8_en = 0;
 #endif
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -198,7 +192,7 @@ static int __init sensor_module_3m2_probe(struct platform_device *pdev)
 
 	dev = &pdev->dev;
 
-	fimc_is_sensor_module_parse_dt(pdev, sensor_module_3m2_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_module_3m2_power_setpin);
 
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];

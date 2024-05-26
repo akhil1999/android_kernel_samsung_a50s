@@ -87,7 +87,6 @@ enum mailbox_event {
 	MAILBOX_EVT_CHUB_ALIVE,
 	MAILBOX_EVT_SHUTDOWN,
 	MAILBOX_EVT_RESET,
-	MAILBOX_EVT_RT_LOGLEVEL,
 	MAILBOX_EVT_MAX,
 };
 
@@ -99,12 +98,11 @@ enum chub_status {
 	CHUB_ST_NO_RESPONSE,
 	CHUB_ST_ERR,
 	CHUB_ST_HANG,
-	CHUB_ST_RESET_FAIL,
 };
 
 struct read_wait {
 	atomic_t cnt;
-	atomic_t flag;
+	volatile u32 flag;
 	wait_queue_head_t event;
 };
 
@@ -114,7 +112,7 @@ struct recv_ctrl {
 };
 
 struct chub_alive {
-	atomic_t flag;
+	unsigned int flag;
 	wait_queue_head_t event;
 };
 
@@ -126,16 +124,17 @@ struct chub_alive {
 
 enum chub_err_type {
 	CHUB_ERR_NONE,
-	CHUB_ERR_EVTQ_ADD, /* ap error */
-	CHUB_ERR_EVTQ_EMTPY,
-	CHUB_ERR_READ_FAIL,
-	CHUB_ERR_WRITE_FAIL,
-	CHUB_ERR_EVTQ_NO_HW_TRIGGER, /* 5 */
-	CHUB_ERR_CHUB_NO_RESPONSE,
 	CHUB_ERR_ITMON,
 	CHUB_ERR_FW_FAULT, /* chub error */
 	CHUB_ERR_FW_WDT,
-	CHUB_ERR_NEED_RESET, /* 10 */
+	CHUB_ERR_EVTQ_NO_HW_TRIGGER,
+	CHUB_ERR_CHUB_NO_RESPONSE, /* 5 */
+	CHUB_ERR_CRITICAL,
+	CHUB_ERR_EVTQ_ADD, /* ap error */
+	CHUB_ERR_EVTQ_EMTPY,
+	CHUB_ERR_READ_FAIL,
+	CHUB_ERR_WRITE_FAIL, /* 10 */
+	CHUB_ERR_NEED_RESET,
 	CHUB_ERR_FW_ERROR = CHUB_ERR_NEED_RESET,
 	CHUB_ERR_COMMS_NACK, /* ap comms error */
 	CHUB_ERR_COMMS_BUSY,
@@ -152,6 +151,20 @@ struct contexthub_baaw_info {
 	unsigned int baaw_p_apm_chub_remap;
 };
 
+struct pmu_shub {
+	int reason;
+	unsigned int top_bus_shub;
+	unsigned int top_pwr_shub;
+	unsigned int logic_reset_shub;
+	unsigned int reset_otp_shub;
+	unsigned int reset_cmu_shub;
+	unsigned int reset_subcpu_shub;
+};
+
+#ifdef CONFIG_SENSORS_SSP
+struct ssp_data;
+#endif
+
 #define CHUB_IRQ_PIN_MAX (5)
 struct contexthub_ipc_info {
 	u32 cur_err;
@@ -161,15 +174,9 @@ struct contexthub_ipc_info {
 	struct nanohub_platform_data *pdata;
 	wait_queue_head_t wakeup_wait;
 	struct work_struct debug_work;
-	struct work_struct log_work;
-	int log_work_reqcnt;
-	spinlock_t logout_lock;
 	struct read_wait read_lock;
 	struct chub_alive chub_alive_lock;
-	struct chub_alive poweron_lock;
-	struct chub_alive reset_lock;
 	void __iomem *sram;
-	u32 sram_size;
 	void __iomem *mailbox;
 	void __iomem *chub_dumpgpr;
 	void __iomem *chub_baaw;
@@ -181,9 +188,10 @@ struct contexthub_ipc_info {
 	struct log_buffer_info *fw_log;
 	struct log_buffer_info *dd_log;
 	struct LOG_BUFFER *dd_log_buffer;
-	struct runtimelog_buf chub_rt_log;
 	unsigned long clkrate;
-	atomic_t log_work_active;
+	atomic_t chub_shutdown;
+	atomic_t chub_status;
+	atomic_t in_reset;
 	atomic_t irq1_apInt;
 	atomic_t wakeup_chub;
 	atomic_t in_use_ipc;
@@ -192,21 +200,33 @@ struct contexthub_ipc_info {
 	bool irq_wdt_disabled;
 	int utc_run;
 	int powermode;
-	atomic_t chub_status;
-	atomic_t in_reset;
 	int block_reset;
-	bool sel_os;
+	struct pmu_shub pmu_shub_status;
+	struct mailbox_sfr mailbox_sfr_dump;
 	bool os_load;
 	char os_name[MAX_FILE_LEN];
 	struct notifier_block itmon_nb;
 	u32 irq_pin_len;
 	u32 irq_pins[CHUB_IRQ_PIN_MAX];
+	struct wakeup_source ws_reset;
 #ifdef CONFIG_CONTEXTHUB_DEBUG
 	struct work_struct utc_work;
 #endif
+#ifdef CONFIG_SENSORS_SSP
+	int sensor_ldo_en;
+	struct ssp_data *ssp_data;
+#endif
 };
 
-#define SENSOR_VARIATION 10
+/*	PMU SHUB REGISTERS	*/
+#if defined(CONFIG_SOC_EXYNOS9610)
+#define TOP_BUS_SHUB_STATUS		0x2c64
+#define TOP_PWR_SHUB_STATUS		0x2ce4
+#define LOGIC_RESET_SHUB_STATUS		0x2d84
+#define RESET_OTP_SHUB_STATUS		0x2b84
+#define RESET_CMU_SHUB_STATUS		0x2a64
+#define RESET_SUBCPU_SHUB_STATUS	0x3d24
+#endif
 
 /*	PMU CHUB_CPU registers */
 #if defined(CONFIG_SOC_EXYNOS9810)
@@ -305,11 +325,13 @@ int contexthub_ipc_write(struct contexthub_ipc_info *ipc,
 				uint8_t *tx, int length, int timeout);
 int contexthub_poweron(struct contexthub_ipc_info *data);
 int contexthub_download_image(struct contexthub_ipc_info *data, enum ipc_region reg);
-int contexthub_reset(struct contexthub_ipc_info *ipc, bool force_load, enum chub_err_type err);
+int contexthub_reset(struct contexthub_ipc_info *ipc, bool force_load, int dump_id);
 int contexthub_wakeup(struct contexthub_ipc_info *data, int evt);
 int contexthub_request(struct contexthub_ipc_info *ipc);
 void contexthub_release(struct contexthub_ipc_info *ipc);
-void chub_wake_event(struct chub_alive *event);
-int contexthub_get_sensortype(struct contexthub_ipc_info *ipc, char *buf);
-void contexthub_print_rtlog(struct contexthub_ipc_info *ipc, bool loop);
+
+#ifdef CONFIG_SENSORS_SSP
+int contexthub_get_token(struct contexthub_ipc_info *ipc);
+void contexthub_put_token(struct contexthub_ipc_info *ipc);
+#endif
 #endif

@@ -579,22 +579,14 @@ int acpm_ipc_send_data_sync(unsigned int channel_id, struct ipc_config *cfg)
 }
 
 /* EXYNOS9610 PMU_DBGCORE */
-#define PMU_DBGCORE_INTR_ENABLE			(0x430)
 #define PMU_DBGCORE_INTR			(0x434)
 
 /* PMU_DBGCORE BIT FIELD */
-#define CLUSTER0_WDTRESET_ENABLE		(1 << 0)
-#define WRESET_ENABLE				(1 << 7)
 #define INTR_ACK				(1 << 31)
 
 void exynos9610_disable_pmu_dbg_intr(void)
 {
 	u32 reg;
-
-	/* PMU_DBGCORE interrupt disable */
-	exynos_pmu_read(PMU_DBGCORE_INTR_ENABLE, &reg);
-	reg &= ~(CLUSTER0_WDTRESET_ENABLE | WRESET_ENABLE);
-	exynos_pmu_write(PMU_DBGCORE_INTR_ENABLE, reg);
 
 	/* PMU_DBGCORE ack */
 	exynos_pmu_read(PMU_DBGCORE_INTR, &reg);

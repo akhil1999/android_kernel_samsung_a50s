@@ -205,7 +205,7 @@ static int sensor_2l3_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
 	struct fimc_is_core *core;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_mclk = 0;
 	int gpio_none = 0;
@@ -213,10 +213,6 @@ static int sensor_2l3_power_setpin(struct device *dev,
 	int gpio_ois_reset = 0;
 	u32 power_seq_id = 0;
 	int ret;
-
-	WARN_ON(!dev);
-
-	dnode = dev->of_node;
 
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 	if (!core) {
@@ -546,8 +542,13 @@ static int __init sensor_module_2l3_probe(struct platform_device *pdev)
 			switch (t) {
 			case VC_BUF_DATA_TYPE_GENERAL_STAT1:
 				/* PDP STAT0: SFR, Size: 1756(1756)Bytes */
-				module->vc_extra_info[t].stat_type
-					= VC_STAT_TYPE_PDP_1_0_PDAF_STAT0;
+				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+						!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0))
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_1_PDAF_STAT0;
+				else
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_0_PDAF_STAT0;
 
 				module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_2PD_MODE3;
 				module->vc_extra_info[t].max_width = 1756;
@@ -556,8 +557,13 @@ static int __init sensor_module_2l3_probe(struct platform_device *pdev)
 				break;
 			case VC_BUF_DATA_TYPE_GENERAL_STAT2:
 				/* PDP STAT1/2: DMA, Size: 17920+21504(17556+21168)Bytes */
-				module->vc_extra_info[t].stat_type
-					= VC_STAT_TYPE_PDP_1_0_PDAF_STAT1;
+				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+						!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0))
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_1_PDAF_STAT1;
+				else
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_0_PDAF_STAT1;
 
 				module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_2PD_MODE3;
 				module->vc_extra_info[t].max_width = 39424;

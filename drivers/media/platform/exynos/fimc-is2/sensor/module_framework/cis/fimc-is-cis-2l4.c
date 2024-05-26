@@ -85,6 +85,14 @@ static bool sensor_2l4_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 	return sensor_2l4_support_wdr[mode];
 }
 
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_2l4_cis_set_mipi_clock(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	return ret;
+}
+#endif
+
 #ifdef USE_CAMERA_EMBEDDED_HEADER
 #define SENSOR_2L4_PAGE_LENGTH 256
 #define SENSOR_2L4_VALID_TAG 0x5A
@@ -510,6 +518,10 @@ int sensor_2l4_cis_init(struct v4l2_subdev *subdev)
 	cis->need_mode_change = false;
 	cis->long_term_mode.sen_strm_off_on_step = 0;
 	cis->long_term_mode.sen_strm_off_on_enable = false;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	sensor_2l4_cis_data_calculation(sensor_2l4_pllinfos[setfile_index], cis->cis_data);
 	sensor_2l4_set_integration_max_margin(setfile_index, cis->cis_data);
@@ -929,6 +941,10 @@ int sensor_2l4_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	sensor_2l4_cis_data_calculation(sensor_2l4_pllinfos[mode], cis->cis_data);
 #endif
 	sensor_2l4_set_integration_max_margin(mode, cis->cis_data);
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	if (mode == SENSOR_2L4_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION1) {
 		sensor_2l4_cis_set_global_setting_dramtest(subdev);
@@ -1500,6 +1516,9 @@ int sensor_2l4_cis_stream_on(struct v4l2_subdev *subdev)
 	cis_data = cis->cis_data;
 
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	sensor_2l4_cis_set_mipi_clock(subdev);
+#endif
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = sensor_2l4_cis_group_param_hold_func(subdev, 0x01);
@@ -2847,6 +2866,13 @@ int sensor_2l4_cis_long_term_exposure(struct v4l2_subdev *subdev)
 	return ret;
 }
 
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_2l4_cis_update_mipi_info(struct v4l2_subdev *subdev)
+{
+	return 0;
+}
+#endif
+
 int sensor_2l4_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 {
 	int ret = 0;
@@ -3151,6 +3177,9 @@ static struct fimc_is_cis_ops cis_ops_2l4 = {
 	.cis_wait_streamon = sensor_cis_wait_streamon,
 	.cis_data_calculation = sensor_2l4_cis_data_calc,
 	.cis_set_long_term_exposure = sensor_2l4_cis_long_term_exposure,
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	.cis_update_mipi_info = sensor_2l4_cis_update_mipi_info,
+#endif
 #ifdef USE_CAMERA_EMBEDDED_HEADER
 	.cis_get_frame_id = sensor_2l4_cis_get_frame_id,
 #endif
@@ -3159,6 +3188,7 @@ static struct fimc_is_cis_ops cis_ops_2l4 = {
 	.cis_check_rev = sensor_2l4_cis_check_rev,
 	.cis_set_super_slow_motion_threshold = sensor_2l4_cis_set_super_slow_motion_threshold,
 	.cis_get_super_slow_motion_threshold = sensor_2l4_cis_get_super_slow_motion_threshold,
+	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
 };
 
 static int cis_2l4_probe(struct i2c_client *client,
@@ -3242,6 +3272,10 @@ static int cis_2l4_probe(struct i2c_client *client,
 #ifdef USE_CAMERA_FACTORY_DRAM_TEST
 		cis->factory_dramtest_section2_fcount = SENSOR_2L4_DRAMTEST_SECTION2_FCOUNT;
 #endif
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+		cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 		cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
 		if (!cis->cis_data) {
 			err("cis_data is NULL");
@@ -3271,6 +3305,9 @@ static int cis_2l4_probe(struct i2c_client *client,
 		v4l2_set_subdev_hostdata(subdev_cis, device);
 		snprintf(subdev_cis->name, V4L2_SUBDEV_NAME_SIZE, "cis-subdev.%d", cis->id);
 	}
+
+	cis->use_initial_ae = of_property_read_bool(dnode, "use_initial_ae");
+	probe_info("%s use initial_ae(%d)\n", __func__, cis->use_initial_ae);
 
 	ret = of_property_read_string(dnode, "setfile", &setfile);
 	if (ret) {

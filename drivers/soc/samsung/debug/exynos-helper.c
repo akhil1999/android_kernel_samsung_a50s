@@ -18,7 +18,6 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 #include <linux/smc.h>
-#include <linux/reboot.h>
 #include <linux/debug-snapshot-helper.h>
 #include <linux/debug-snapshot.h>
 #include <soc/samsung/exynos-debug.h>
@@ -30,9 +29,11 @@
 #include <asm/smp_plat.h>
 #include <asm/core_regs.h>
 
+#ifdef CONFIG_EXYNOS_BCM_DBG
 #include <soc/samsung/exynos-bcm_dbg.h>
+#endif
 
-#if defined(CONFIG_SEC_MODEM_IF)
+#if defined(CONFIG_SEC_SIPC_MODEM_IF)
 #include <soc/samsung/exynos-modem-ctrl.h>
 #endif
 
@@ -40,7 +41,7 @@
 #include <soc/samsung/acpm_ipc_ctrl.h>
 #endif
 
-extern void (*arm_pm_restart)(enum reboot_mode str, const char *cmd);
+extern void (*arm_pm_restart)(char str, const char *cmd);
 
 static struct err_variant arm64_err_type_1[] = {
 	ERR_VAR("AV", 31, 31),
@@ -129,7 +130,7 @@ static struct err_variant arm64_err_type_TCR[] = {
 //	ERR_VAR("IRGN0", 9, 8),
 //	ERR_VAR("EPD0", 7, 7),
 //	ERR_VAR("T1SZ", 5, 0),
-//	ERR_VAR("END", 64, 64),
+	ERR_VAR("END", 64, 64),
 };
 
 static struct err_variant arm64_err_type_VBAR[] = {
@@ -243,7 +244,7 @@ static void exynos_prepare_panic_entry(void *val)
 
 static void exynos_prepare_panic_exit(void *val)
 {
-#if defined(CONFIG_SEC_MODEM_IF)
+#if defined(CONFIG_SEC_SIPC_MODEM_IF)
 	modem_send_panic_noti_ext();
 #endif
 #if defined(CONFIG_ACPM_DVFS)
@@ -264,7 +265,7 @@ static void exynos_post_panic_entry(void *val)
 static void exynos_post_panic_exit(void *val)
 {
 #ifdef CONFIG_DEBUG_SNAPSHOT_PANIC_REBOOT
-	arm_pm_restart(REBOOT_COLD, "panic");
+	arm_pm_restart(0, "panic");
 #endif
 }
 
@@ -524,7 +525,11 @@ static void exynos_start_watchdog(void *val)
 static void exynos_expire_watchdog(void *val)
 {
 #ifdef CONFIG_S3C2410_WATCHDOG
+#ifdef CONFIG_SEC_DEBUG
+	__s3c2410wdt_set_emergency_reset(100, 0, (unsigned long)val);
+#else
 	s3c2410wdt_set_emergency_reset(100, 0);
+#endif
 #endif
 }
 

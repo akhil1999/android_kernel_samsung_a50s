@@ -64,6 +64,9 @@ enum pafstat_interrupt_map {
 				| (1 << PAFSTAT_INT_STAT_FRAME_END) \
 				| (1 << PAFSTAT_INT_FRAME_FAIL))
 
+#define PAFSTAT_STREAMOFF_WAIT_TIME	2000	/* 2ms */
+#define PAFSTAT_STREAMOFF_RETRY_COUNT	30
+
 u32 pafstat_hw_g_reg_cnt(void);
 void pafstat_hw_g_floating_size(u32 *width, u32 *height, u32 *element);
 void pafstat_hw_g_static_size(u32 *width, u32 *height, u32 *element);
@@ -81,8 +84,7 @@ int pafstat_hw_s_sensor_mode(void __iomem *base_reg, u32 pd_mode);
 void pafstat_hw_com_s_lic_mode(void __iomem *base_reg, u32 id,
 	enum pafstat_lic_mode lic_mode, enum pafstat_input_path input);
 void pafstat_hw_com_s_fro(void __iomem *base_reg, u32 fro_cnt);
-int pafstat_hw_s_4ppc(void __iomem *base_reg, u32 width, u32 height, u32 frame_rate,
-	u32 mipi_speed, u32 lanes, const char *conid);
+int pafstat_hw_s_4ppc(void __iomem *base_reg, u32 pixel_mode);
 void pafstat_hw_s_img_size(void __iomem *base_reg, u32 width, u32 height);
 void pafstat_hw_s_pd_size(void __iomem *base_reg, u32 width, u32 height);
 void pafstat_hw_s_input_path(void __iomem *base_reg, enum pafstat_input_path input);
@@ -92,13 +94,14 @@ void pafstat_hw_s_intr_mask_all_context(void);
 int pafstat_hw_sw_reset(void __iomem *base_reg);
 void pafstat_hw_s_lbctrl(void __iomem *base_reg, u32 width, u32 height);
 int pafstat_hw_g_fwin_stat(void __iomem *base_reg, void *buf, size_t len);
-int pafstat_hw_com_s_med_line(void __iomem *base_reg);
+int pafstat_hw_com_s_med_line(void __iomem *base_reg, int dist_pd_pixel);
 
 /* PAF RDMA */
 void fimc_is_hw_paf_common_config(void __iomem *base_reg_com, void __iomem *base_reg,
 	u32 paf_ch, u32 width, u32 height);
 void fimc_is_hw_paf_rdma_reset(void __iomem *base_reg);
-void fimc_is_hw_paf_rdma_config(void __iomem *base_reg, u32 hw_format, u32 bitwidth, u32 width, u32 height);
+void fimc_is_hw_paf_rdma_config(void __iomem *base_reg, u32 hw_format, u32 bitwidth,
+		u32 width, u32 height, u32 pix_stride);
 void fimc_is_hw_paf_rdma_set_addr(void __iomem *base_reg, u32 addr);
 void fimc_is_hw_paf_rdma_enable(void __iomem *base_reg_com, void __iomem *base_reg, u32 enable);
 void fimc_is_hw_paf_sfr_dump(void __iomem *base_reg_com, void __iomem *base_reg);

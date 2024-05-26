@@ -122,11 +122,7 @@ int exynos_ufs_fmp_cfg(struct ufs_hba *hba,
 		return 0;
 
 	dtfm = crypto_diskcipher_get(bio);
-	if (unlikely(IS_ERR(dtfm)) || (dtfm && !virt_addr_valid(dtfm))) {
-		pr_warn("%s: fails to get crypt: %p, valid:%d\n", __func__, dtfm,
-			virt_addr_valid(dtfm));
-		return -EINVAL;
-	} else if (dtfm) {
+	if (dtfm) {
 #ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
 		if (bio_dun(bio))
 			iv = bio_dun(bio) + page_index;

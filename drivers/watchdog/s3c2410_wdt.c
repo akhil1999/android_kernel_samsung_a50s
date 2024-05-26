@@ -36,10 +36,18 @@
 #include <linux/mfd/syscon.h>
 #include <linux/regmap.h>
 #include <linux/delay.h>
+#include <linux/rtc.h>
 #include <linux/syscore_ops.h>
 #include <linux/soc/samsung/exynos-soc.h>
 #include <soc/samsung/exynos-pmu.h>
-#include <linux/debug-snapshot.h>
+
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
+#include <linux/sched/clock.h>
+#define SEC_WATCHDOGD_FOOTPRINT
+struct watchdogd_info *wdd_info;
+struct rtc_time wdd_info_tm;
+#endif
 
 #define S3C2410_WTCON		0x00
 #define S3C2410_WTDAT		0x04
@@ -421,6 +429,7 @@ static int s3c2410wdt_keepalive(struct watchdog_device *wdd)
 {
 	struct s3c2410_wdt *wdt = watchdog_get_drvdata(wdd);
 	unsigned long flags, wtcnt = 0;
+	time64_t sec;
 
 	s3c2410wdt_multistage_wdt_keepalive();
 
@@ -430,6 +439,21 @@ static int s3c2410wdt_keepalive(struct watchdog_device *wdd)
 
 	wtcnt = readl(wdt->reg_base + S3C2410_WTCNT);
 	dev_info(wdt->dev, "Watchdog cluster %u keepalive!, wtcnt = %lx\n", wdt->cluster, wtcnt);
+
+#ifdef SEC_WATCHDOGD_FOOTPRINT
+	if (wdt->cluster == 0) {
+		wdd_info->last_ping_cpu = raw_smp_processor_id();
+		wdd_info->last_ping_time = sched_clock();
+
+		sec = ktime_get_real_seconds();
+		rtc_time_to_tm(sec, wdd_info->tm);
+		pr_info("Watchdog: %s RTC %d-%02d-%02d %02d:%02d:%02d UTC\n",
+				__func__,
+				wdd_info->tm->tm_year + 1900, wdd_info->tm->tm_mon + 1,
+				wdd_info->tm->tm_mday, wdd_info->tm->tm_hour,
+				wdd_info->tm->tm_min, wdd_info->tm->tm_sec);
+	}
+#endif
 
 	return 0;
 }
@@ -505,6 +529,15 @@ static int s3c2410wdt_start(struct watchdog_device *wdd)
 
 	wtcon = readl(wdt->reg_base + S3C2410_WTCON);
 	dev_info(wdt->dev, "Watchdog cluster %u start, WTCON = %lx\n", wdt->cluster, wtcon);
+
+#ifdef SEC_WATCHDOGD_FOOTPRINT
+	if (wdd_info->init_done == false) {
+		wdd_info->tsk = current;
+		wdd_info->thr = current_thread_info();		
+		wdd_info->init_done = true;
+	}
+#endif
+
 	return 0;
 }
 
@@ -808,6 +841,55 @@ int s3c2410wdt_keepalive_emergency(bool reset, int index)
 	return 0;
 }
 
+int s3c2410wdt_emergency_multistage_wdt_stop(void)
+{
+	int index;
+	unsigned long wtcon, flags;
+
+	index = s3c2410wdt_get_multistage_index();
+
+	if (index < 0)
+		return -ENODEV;
+
+	spin_lock_irqsave(&s3c_wdt[index]->lock, flags);
+	wtcon = readl(s3c_wdt[index]->reg_base + S3C2410_WTCON);
+	wtcon &= ~(S3C2410_WTCON_ENABLE | S3C2410_WTCON_INTEN);
+	writel(wtcon, s3c_wdt[index]->reg_base + S3C2410_WTCON);
+	spin_unlock_irqrestore(&s3c_wdt[index]->lock, flags);
+	dev_info(s3c_wdt[index]->dev, "%s\n", __func__);
+	return 0;
+}
+
+int s3c2410wdt_emergency_multistage_wdt_start(void)
+{
+	int index;
+	unsigned long wtcon, flags;
+	index = s3c2410wdt_get_multistage_index();
+
+	if (index < 0)
+		return -ENODEV;
+
+	spin_lock_irqsave(&s3c_wdt[index]->lock, flags);
+	s3c2410wdt_multistage_wdt_stop();
+
+	wtcon = readl(s3c_wdt[index]->reg_base + S3C2410_WTCON);
+	wtcon |= S3C2410_WTCON_ENABLE | S3C2410_WTCON_DIV128;
+
+	wtcon |= S3C2410_WTCON_INTEN;
+	wtcon &= ~S3C2410_WTCON_RSTEN;
+
+	writel(s3c_wdt[index]->count, s3c_wdt[index]->reg_base + S3C2410_WTDAT);
+	writel(s3c_wdt[index]->count, s3c_wdt[index]->reg_base + S3C2410_WTCNT);
+	writel(wtcon, s3c_wdt[index]->reg_base + S3C2410_WTCON);
+
+	spin_unlock_irqrestore(&s3c_wdt[index]->lock, flags);
+	dev_info(s3c_wdt[index]->dev, "%s: count=0x%08x, wtcon=%08lx\n",
+	    __func__, s3c_wdt[index]->count, wtcon);
+
+	return 0;
+}
+
+
 static int s3c2410wdt_get_multistage_index(void)
 {
 	int i;
@@ -952,7 +1034,7 @@ static int s3c2410wdt_panic_handler(struct notifier_block *nb,
 	return 0;
 }
 
-inline int s3c2410wdt_set_emergency_reset(unsigned int timeout_cnt, int index)
+inline int __s3c2410wdt_set_emergency_reset(unsigned int timeout_cnt, int index, unsigned long addr)
 {
 	struct s3c2410_wdt *wdt = s3c_wdt[index];
 	unsigned int wtdat = 0;
@@ -961,6 +1043,10 @@ inline int s3c2410wdt_set_emergency_reset(unsigned int timeout_cnt, int index)
 
 	if (!wdt)
 		return -ENODEV;
+
+#ifdef CONFIG_SEC_DEBUG
+	wdd_info->emerg_addr = addr;
+#endif
 
 	/* emergency reset with wdt reset */
 	wtcon = readl(wdt->reg_base + S3C2410_WTCON);
@@ -971,6 +1057,11 @@ inline int s3c2410wdt_set_emergency_reset(unsigned int timeout_cnt, int index)
 	writel(wtcon, wdt->reg_base + S3C2410_WTCON);
 
 	return 0;
+}
+
+inline int s3c2410wdt_set_emergency_reset(unsigned int timeout_cnt, int index)
+{
+	return __s3c2410wdt_set_emergency_reset(timeout_cnt, index, _RET_IP_);
 }
 
 inline int s3c2410wdt_multistage_emergency_reset(unsigned int timeout_cnt)
@@ -1279,7 +1370,7 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	dev_info(dev, "probe: mapped reg_base=%p\n", wdt->reg_base);
+	dev_dbg(wdt->dev,"probe: mapped reg_base=%p\n", wdt->reg_base);
 
 	wdt->rate_clock = devm_clk_get(dev, "rate_watchdog");
 	if (IS_ERR(wdt->rate_clock)) {
@@ -1403,6 +1494,14 @@ static int s3c2410wdt_probe(struct platform_device *pdev)
 		(wtcon & S3C2410_WTCON_INTEN) ? "en" : "dis");
 	dev_info(dev, "Multistage watchdog %sabled",
 		wdt->use_multistage_wdt ? "en" : "dis");
+
+#if defined(CONFIG_SEC_DEBUG)
+	wdd_info = sec_debug_get_wdd_info();
+	if (wdd_info) {
+		wdd_info->init_done = false;
+		wdd_info->tm = &wdd_info_tm;
+	}
+#endif
 
 	return 0;
 

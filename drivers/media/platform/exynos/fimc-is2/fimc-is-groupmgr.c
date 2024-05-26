@@ -28,7 +28,6 @@
 #include <linux/videodev2_exynos_camera.h>
 #include <linux/v4l2-mediabus.h>
 #include <linux/bug.h>
-#include <soc/samsung/tmu.h>
 
 #include "fimc-is-type.h"
 #include "fimc-is-core.h"
@@ -42,13 +41,20 @@
 #include "fimc-is-debug.h"
 #include "fimc-is-hw.h"
 #include "fimc-is-vender.h"
-#if defined(CONFIG_CAMERA_PDP) || defined(CONFIG_CAMERA_EEPROM_SELECT)
+#if defined(CONFIG_CAMERA_PDP)
 #include "fimc-is-interface-sensor.h"
 #include "fimc-is-device-sensor-peri.h"
+#endif
+#if defined(CONFIG_SOC_EXYNOS9610)
+#include <soc/samsung/bts.h>
 #endif
 
 /* sysfs variable for debug */
 extern struct fimc_is_sysfs_debug sysfs_debug;
+
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+static struct fimc_is_group_frame dummy_gframe;
+#endif
 
 static inline void smp_shot_init(struct fimc_is_group *group, u32 value)
 {
@@ -285,6 +291,8 @@ check_gnext:
 
 	otcrop = (struct fimc_is_crop *)gframe->group_cfg[group->slot].capture[junction->cid].output.cropRegion;
 	subdev = &gnext->leader;
+
+#ifndef DISABLE_CHECK_PERFRAME_FMT_SIZE
 	if ((otcrop->w * otcrop->h) > (subdev->input.width * subdev->input.height)) {
 		mrwarn("the output size bigger than input size of next group(GP%d(%dx%d) > GP%d(%dx%d))",
 			group, gframe,
@@ -295,6 +303,7 @@ check_gnext:
 		frame->shot_ext->node_group.capture[junction->cid].output.cropRegion[2] = otcrop->w;
 		frame->shot_ext->node_group.capture[junction->cid].output.cropRegion[3] = otcrop->h;
 	}
+#endif
 
 	/* set canvas size of next group as output size of currnet group */
 	gframe->canv = *otcrop;
@@ -425,6 +434,21 @@ void * fimc_is_gframe_rewind(struct fimc_is_groupmgr *groupmgr,
 	}
 
 	return gframe;
+}
+
+void *fimc_is_gframe_group_find(struct fimc_is_group *group, u32 target_fcount)
+{
+	struct fimc_is_group_frame *gframe;
+
+	FIMC_BUG_NULL(!group);
+	FIMC_BUG_NULL(group->instance >= FIMC_IS_STREAM_COUNT);
+
+	list_for_each_entry(gframe, &group->gframe_head, list) {
+		if (gframe->fcount == target_fcount)
+			return gframe;
+	}
+
+	return NULL;
 }
 
 int fimc_is_gframe_flush(struct fimc_is_groupmgr *groupmgr,
@@ -597,7 +621,7 @@ void fimc_is_group_subdev_cancel(struct fimc_is_group *group,
 #endif
 				}
 			} while (sub_frame && flush);
-
+			
 			if (sub_vctx->video->try_smp)
 				up(&sub_vctx->video->smp_multi_input);
 		}
@@ -951,6 +975,7 @@ static int fimc_is_group_task_start(struct fimc_is_groupmgr *groupmgr,
 	if (test_bit(FIMC_IS_GTASK_START, &gtask->state))
 		goto p_work;
 
+	sema_init(&gtask->smp_resource, 0);
 	kthread_init_worker(&gtask->worker);
 	snprintf(name, sizeof(name), "fimc_is_gw%d", gtask->id);
 	gtask->task = kthread_run(kthread_worker_fn, &gtask->worker, name);
@@ -1394,8 +1419,21 @@ int fimc_is_groupmgr_init(struct fimc_is_groupmgr *groupmgr,
 			fimc_is_pipe_create(&device->pipe, next->gprev, next);
 #endif
 		} else {
-			sibling->gnext = next;
-			next->gprev = sibling;
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+			/**
+			 * HACK: Put VRA group as a isolated group.
+			 * There is some case that user skips queueing VRA buffer,
+			 * even though DMA out request of junction node is set.
+			 * To prevent the gframe stuck issue,
+			 * VRA group must not receive gframe from previous group.
+			 */
+			if (next->id != GROUP_ID_VRA0)
+#endif
+			{
+				sibling->gnext = next;
+				next->gprev = sibling;
+			}
+
 			sibling = next;
 		}
 
@@ -2015,7 +2053,6 @@ int fimc_is_group_start(struct fimc_is_groupmgr *groupmgr,
 	struct fimc_is_group_task *gtask;
 	u32 sensor_fcount;
 	u32 framerate;
-	u32 shot_inc;
 	enum fimc_is_ex_mode ex_mode;
 
 	FIMC_BUG(!groupmgr);
@@ -2076,14 +2113,8 @@ int fimc_is_group_start(struct fimc_is_groupmgr *groupmgr,
 			memset(&group->intent_ctl, 0, sizeof(struct camera2_aa_ctl));
 
 			/* shot resource */
-			if ((group->init_shots + group->sync_shots) > smp_shot_get(group)) {
-				shot_inc = (group->init_shots + group->sync_shots) - smp_shot_get(group);
-				while (shot_inc > 0) {
-					up(&gtask->smp_resource);
-					smp_shot_inc(group);
-					shot_inc--;
-				}
-			}
+			sema_init(&gtask->smp_resource, group->asyn_shots + group->sync_shots);
+			smp_shot_init(group, group->asyn_shots + group->sync_shots);
 		} else {
 			if (framerate > 120)
 				group->asyn_shots = MIN_OF_ASYNC_SHOTS_240FPS;
@@ -2223,11 +2254,14 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 	FIMC_BUG(!groupmgr);
 	FIMC_BUG(!group);
 	FIMC_BUG(!group->device);
+	FIMC_BUG(!group->head);
 	FIMC_BUG(!group->leader.vctx);
 	FIMC_BUG(group->instance >= FIMC_IS_STREAM_COUNT);
 	FIMC_BUG(group->id >= GROUP_ID_MAX);
 
 	device = group->device;
+	head = group->head;
+	gtask = &groupmgr->gtask[head->id];
 	sensor = device->sensor;
 	framemgr = GET_HEAD_GROUP_FRAMEMGR(group);
 	if (!framemgr) {
@@ -2240,10 +2274,6 @@ int fimc_is_group_stop(struct fimc_is_groupmgr *groupmgr,
 		mwarn("already group stop", group);
 		return -EPERM;
 	}
-
-	FIMC_BUG(!group->head);
-	head = group->head;
-	gtask = &groupmgr->gtask[head->id];
 
 	/* force stop set if only HEAD group OTF input */
 	if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->head->state)) {
@@ -2505,10 +2535,6 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 			frame->shot->ctl.aa.aeTargetFpsRange[0] = resourcemgr->limited_fps;
 			frame->shot->ctl.aa.aeTargetFpsRange[1] = resourcemgr->limited_fps;
 			frame->shot->ctl.sensor.frameDuration = 1000000000/resourcemgr->limited_fps;
-
-			fimc_is_hw_set_bts_ext_ctrl(BTS_SCN_THERMAL, true);
-		} else {
-			fimc_is_hw_set_bts_ext_ctrl(BTS_SCN_THERMAL, false);
 		}
 
 #ifdef ENABLE_FAST_SHOT
@@ -2522,45 +2548,13 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 		}
 #endif
 
-#ifdef ENABLE_FAST_AF_TRIGGER
-		/* for reduce AF control delay,
-		 * it need to copy "afMode & afTrigger" in queued frame
-		 * at only AF mode == CONTINUOUS_PICTURE or CONTINUOUS_VIDEO
-		 *         AF trigger == START
-		 *         PreCaptureTrigger != START
-		 */
-		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state)) {
-			struct fimc_is_frame *prev;
-
-			if (((frame->shot->ctl.aa.afMode == AA_AFMODE_CONTINUOUS_VIDEO ||
-				frame->shot->ctl.aa.afMode == AA_AFMODE_CONTINUOUS_PICTURE) &&
-				frame->shot->ctl.aa.afTrigger == AA_AF_TRIGGER_START) &&
-				frame->shot->ctl.aa.aePrecaptureTrigger != AA_AE_PRECAPTURE_TRIGGER_START) {
-
-				list_for_each_entry_reverse(prev, &framemgr->queued_list[FS_REQUEST], list) {
-					prev->shot->ctl.aa.afMode = frame->shot->ctl.aa.afMode;
-					prev->shot->ctl.aa.afTrigger = frame->shot->ctl.aa.afTrigger;
-				}
-
-				list_for_each_entry_reverse(prev, &framemgr->queued_list[FS_PROCESS], list) {
-					prev->shot->ctl.aa.afMode = frame->shot->ctl.aa.afMode;
-					prev->shot->ctl.aa.afTrigger = frame->shot->ctl.aa.afTrigger;
-				}
-			}
-		}
-#endif
-
 #ifdef SENSOR_REQUEST_DELAY
 		if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state) &&
-			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED)) {
+			(frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_GED
+			|| frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_SDK
+			|| frame->shot->uctl.opMode == CAMERA_OP_MODE_HAL3_CAMERAX)) {
 			int req_cnt = 0;
 			struct fimc_is_frame *prev;
-
-			if (resourcemgr->shot_timeout_tick > 0)
-				resourcemgr->shot_timeout_tick--;
-			else
-				resourcemgr->shot_timeout = FIMC_IS_SHOT_TIMEOUT;
-
 			list_for_each_entry_reverse(prev, &framemgr->queued_list[FS_REQUEST], list) {
 				if (++req_cnt > SENSOR_REQUEST_DELAY)
 					break;
@@ -2585,17 +2579,6 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 				prev->shot->ctl.aa.aeExpCompensation		= frame->shot->ctl.aa.aeExpCompensation;
 				prev->shot->ctl.aa.aeLock			= frame->shot->ctl.aa.aeLock;
 				prev->shot->ctl.lens.opticalStabilizationMode	= frame->shot->ctl.lens.opticalStabilizationMode;
-
-				if (frame->shot->ctl.aa.sceneMode == AA_SCENE_MODE_PRO_MODE
-					&& frame->shot->ctl.aa.captureIntent == AA_CAPTURE_INTENT_STILL_CAPTURE_EXPOSURE_DYNAMIC_SHOT) {
-					prev->shot->ctl.aa.sceneMode = frame->shot->ctl.aa.sceneMode;
-					prev->shot->ctl.aa.captureIntent = frame->shot->ctl.aa.captureIntent;
-					prev->shot->ctl.aa.vendor_captureExposureTime = frame->shot->ctl.aa.vendor_captureExposureTime;
-					prev->shot->ctl.aa.vendor_captureCount = frame->shot->ctl.aa.vendor_captureCount;
-
-					resourcemgr->shot_timeout = FIMC_IS_SHOT_TIMEOUT * 12; /* 3000 x 12 = 36s */
-					resourcemgr->shot_timeout_tick = KEEP_FRAME_TICK_DEFAULT;
-				}
 			}
 		}
 #endif
@@ -2605,13 +2588,23 @@ int fimc_is_group_buffer_queue(struct fimc_is_groupmgr *groupmgr,
 				&& (device->sensor && !test_bit(FIMC_IS_SENSOR_FRONT_START, &device->sensor->state))) {
 			device->sensor->mode_chg_frame = NULL;
 
-			if (CHK_REMOSAIC_SCN(frame->shot->ctl.aa.sceneMode)) {
+			if (CHK_REMOSAIC_SCN(frame->shot->ctl.aa.captureIntent)) {
 				clear_bit(FIMC_IS_SENSOR_OTF_OUTPUT, &device->sensor->state);
 				device->sensor->mode_chg_frame = frame;
 			} else {
 				if (group->child)
 					set_bit(FIMC_IS_SENSOR_OTF_OUTPUT, &device->sensor->state);
 			}
+		}
+#endif
+#ifdef CHAIN_USE_STRIPE_PROCESSING
+		/* Trigger stripe processing for remosaic capture request. */
+		if (IS_ENABLED(CHAIN_USE_STRIPE_PROCESSING)
+			&& test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state)
+			&& CHK_REMOSAIC_SCN(frame->shot->ctl.aa.captureIntent)) {
+			frame->stripe_info.region_num = STRIPE_REGION_NUM;
+			mgrinfo("set stripe_region_num %d\n", group, group, frame,
+					frame->stripe_info.region_num);
 		}
 #endif
 
@@ -2820,41 +2813,61 @@ static int fimc_is_group_check_pre(struct fimc_is_groupmgr *groupmgr,
 		fimc_is_gframe_s_info(gframe, group->slot, frame);
 		fimc_is_gframe_check(gprev, group, gnext, gframe, frame);
 	} else {
-		/* single */
-		if (atomic_read(&group->scount))
-			group->fcount += frame->num_buffers;
-		else
-			group->fcount++;
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+		if (group->id == GROUP_ID_VRA0) {
+			/* VRA: Skip gframe logic. */
+			struct fimc_is_crop *incrop
+				= (struct fimc_is_crop *)frame->shot_ext->node_group.leader.input.cropRegion;
+			struct fimc_is_subdev *subdev = &group->leader;
 
-		fimc_is_gframe_free_head(gframemgr, &gframe);
-		if (unlikely(!gframe)) {
-			mgerr("gframe is NULL4", device, group);
-			fimc_is_gframe_print_free(gframemgr);
-			fimc_is_gframe_print_group(group_leader);
-			spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
-			fimc_is_stream_status(groupmgr, group_leader);
-			ret = -EINVAL;
-			goto p_err;
-		}
+			if ((incrop->w * incrop->h) > (subdev->input.width * subdev->input.height)) {
+				mrwarn("the input size is invalid(%dx%d > %dx%d)", group, frame,
+						incrop->w, incrop->h,
+						subdev->input.width, subdev->input.height);
+				incrop->w = subdev->input.width;
+				incrop->h = subdev->input.height;
+			}
 
-		if (unlikely(!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state) &&
-			(frame->fcount != group->fcount))) {
-			if (frame->fcount > group->fcount) {
-				mgwarn("shot mismatch(%d != %d)", device, group,
-					frame->fcount, group->fcount);
-				group->fcount = frame->fcount;
-			} else {
+			gframe = &dummy_gframe;
+		} else
+#endif
+		{
+			/* single */
+			if (atomic_read(&group->scount))
+				group->fcount += frame->num_buffers;
+			else
+				group->fcount++;
+
+			fimc_is_gframe_free_head(gframemgr, &gframe);
+			if (unlikely(!gframe)) {
+				mgerr("gframe is NULL4", device, group);
+				fimc_is_gframe_print_free(gframemgr);
+				fimc_is_gframe_print_group(group_leader);
 				spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
-				mgerr("shot mismatch(%d, %d)", device, group,
-					frame->fcount, group->fcount);
-				group->fcount -= frame->num_buffers;
+				fimc_is_stream_status(groupmgr, group_leader);
 				ret = -EINVAL;
 				goto p_err;
 			}
-		}
 
-		fimc_is_gframe_s_info(gframe, group->slot, frame);
-		fimc_is_gframe_check(gprev, group, gnext, gframe, frame);
+			if (unlikely(!test_bit(FIMC_IS_ISCHAIN_REPROCESSING, &device->state) &&
+						(frame->fcount != group->fcount))) {
+				if (frame->fcount > group->fcount) {
+					mgwarn("shot mismatch(%d != %d)", device, group,
+							frame->fcount, group->fcount);
+					group->fcount = frame->fcount;
+				} else {
+					spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
+					mgerr("shot mismatch(%d, %d)", device, group,
+							frame->fcount, group->fcount);
+					group->fcount -= frame->num_buffers;
+					ret = -EINVAL;
+					goto p_err;
+				}
+			}
+
+			fimc_is_gframe_s_info(gframe, group->slot, frame);
+			fimc_is_gframe_check(gprev, group, gnext, gframe, frame);
+		}
 	}
 
 	*result = gframe;
@@ -2933,8 +2946,12 @@ static int fimc_is_group_check_post(struct fimc_is_groupmgr *groupmgr,
 			}
 		}
 	} else {
-		/* single */
-		gframe->fcount = frame->fcount;
+#ifdef CHAIN_SKIP_GFRAME_FOR_VRA
+		/* VRA: Skip gframe logic. */
+		if (group->id != GROUP_ID_VRA0)
+#endif
+			/* single */
+			gframe->fcount = frame->fcount;
 	}
 
 	spin_unlock_irqrestore(&gframemgr->gframe_slock, flags);
@@ -3201,6 +3218,13 @@ p_skip_sync:
 				scenario_id,
 				dynamic_ctrl->scenarios[dynamic_ctrl->cur_scenario_idx].scenario_nm);
 			fimc_is_set_dvfs((struct fimc_is_core *)device->interface->core, device, scenario_id);
+
+#if defined(CONFIG_SOC_EXYNOS9610)
+			if (scenario_id == FIMC_IS_SN_REAR_CAPTURE || scenario_id == FIMC_IS_SN_FRONT_CAPTURE) {
+				bts_update_scen(BS_CAMERA_REMOSAIC, 1);
+				fimc_is_hw_sysreg_mo_limit(true);
+			}
+#endif
 		}
 
 		if ((scenario_id < 0) && (resourcemgr->dvfs_ctrl.dynamic_ctrl->cur_frame_tick == 0)) {
@@ -3210,6 +3234,11 @@ p_skip_sync:
 				static_ctrl->cur_scenario_id,
 				static_ctrl->scenarios[static_ctrl->cur_scenario_idx].scenario_nm);
 			fimc_is_set_dvfs((struct fimc_is_core *)device->interface->core, device, static_ctrl->cur_scenario_id);
+
+#if defined(CONFIG_SOC_EXYNOS9610)
+			bts_update_scen(BS_CAMERA_REMOSAIC, 0);
+			fimc_is_hw_sysreg_mo_limit(false);
+#endif
 		}
 
 		mutex_unlock(&resourcemgr->dvfs_ctrl.lock);
@@ -3333,7 +3362,6 @@ int fimc_is_group_done(struct fimc_is_groupmgr *groupmgr,
 	u32 done_state)
 {
 	int ret = 0;
-	int i = 0;
 	struct fimc_is_device_ischain *device;
 	struct fimc_is_group_framemgr *gframemgr;
 	struct fimc_is_group_frame *gframe;
@@ -3344,7 +3372,6 @@ int fimc_is_group_done(struct fimc_is_groupmgr *groupmgr,
 #endif
 	ulong flags;
 	struct fimc_is_group_task *gtask_child;
-	struct fimc_is_resourcemgr *resourcemgr;
 
 	FIMC_BUG(!groupmgr);
 	FIMC_BUG(!group);
@@ -3377,7 +3404,6 @@ int fimc_is_group_done(struct fimc_is_groupmgr *groupmgr,
 	if (test_bit(FIMC_IS_GROUP_OTF_INPUT, &group->state))
 		fimc_is_sensor_dm_tag(device->sensor, frame);
 
-	resourcemgr = device->resourcemgr;
 #ifdef ENABLE_SHARED_METADATA
 	fimc_is_hw_shared_meta_update(device, group, frame, SHARED_META_SHOT_DONE);
 #else
@@ -3389,29 +3415,6 @@ int fimc_is_group_done(struct fimc_is_groupmgr *groupmgr,
 				frame->shot->udm.ni.currentFrameNoiseIndex;
 			device->next_noise_idx[(frame->fcount + 2) % NI_BACKUP_MAX] =
 				frame->shot->udm.ni.nextNextFrameNoiseIndex;
-
-			/* thermal state update */
-			switch (resourcemgr->tmu_state) {
-			case ISP_NORMAL:
-			case ISP_COLD:
-				frame->shot_ext->thermal = CAM_THERMAL_NORMAL;
-				break;
-			case ISP_THROTTLING:
-				frame->shot_ext->thermal = CAM_THERMAL_THROTTLING;
-				break;
-			case ISP_TRIPPING:
-				frame->shot_ext->thermal = CAM_THERMAL_TRIPPING;
-				break;
-			default:
-				warn("invalid tmu_state");
-				break;
-			}
-
-			if (device->sensor->subdev_eeprom || device->sensor->use_otp_cal) {
-				/* Sensor EEPROM CAL data status update */
-				for (i = 0; i < CAMERA_CRC_INDEX_MAX; i++)
-					frame->shot_ext->user.crc_result[i] = device->sensor->cal_status[i];
-			}
 		}
 
 #ifdef ENABLE_INIT_AWB
@@ -3439,8 +3442,8 @@ int fimc_is_group_done(struct fimc_is_groupmgr *groupmgr,
 	if (unlikely((done_state != VB2_BUF_STATE_DONE) && gnext)) {
 		spin_lock_irqsave(&gframemgr->gframe_slock, flags);
 
-		fimc_is_gframe_group_head(gnext, &gframe);
-		if (gframe && (gframe->fcount == frame->fcount)) {
+		gframe = fimc_is_gframe_group_find(gnext, frame->fcount);
+		if (gframe) {
 			ret = fimc_is_gframe_trans_grp_to_fre(gframemgr, gframe, gnext);
 			if (ret) {
 				mgerr("fimc_is_gframe_trans_grp_to_fre is fail(%d)", device, gnext, ret);
@@ -3478,6 +3481,10 @@ int fimc_is_group_done(struct fimc_is_groupmgr *groupmgr,
 			return ret;
 		}
 	}
+
+	/* Re-trigger the group shot for next stripe processing. */
+	if (frame->state == FS_STRIPE_PROCESS)
+		fimc_is_group_start_trigger(groupmgr, group, frame);
 
 	return ret;
 }

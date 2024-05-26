@@ -672,34 +672,34 @@ void fimc_is_scaler_set_poly_scaler_enable(void __iomem *base_addr, u32 hw_id, u
 
 	switch (output_id) {
 	case MCSC_OUTPUT0:
-		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL], &mcsc_fields[MCSC_F_SC0_ENABLE], enable);
 		if (enable)
 			fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL],
 				&mcsc_fields[MCSC_F_SC0_INPUT_SEL], input_source);
+		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC0_CTRL], &mcsc_fields[MCSC_F_SC0_ENABLE], enable);
 		break;
 	case MCSC_OUTPUT1:
-		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL], &mcsc_fields[MCSC_F_SC1_ENABLE], enable);
 		if (enable)
 			fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL],
 				&mcsc_fields[MCSC_F_SC1_INPUT_SEL], input_source);
+		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC1_CTRL], &mcsc_fields[MCSC_F_SC1_ENABLE], enable);
 		break;
 	case MCSC_OUTPUT2:
-		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL], &mcsc_fields[MCSC_F_SC2_ENABLE], enable);
 		if (enable)
 			fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL],
 				&mcsc_fields[MCSC_F_SC2_INPUT_SEL], input_source);
+		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC2_CTRL], &mcsc_fields[MCSC_F_SC2_ENABLE], enable);
 		break;
 	case MCSC_OUTPUT3:
-		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC3_CTRL], &mcsc_fields[MCSC_F_SC3_ENABLE], enable);
 		if (enable)
 			fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC3_CTRL],
 				&mcsc_fields[MCSC_F_SC3_INPUT_SEL], input_source);
+		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC3_CTRL], &mcsc_fields[MCSC_F_SC3_ENABLE], enable);
 		break;
 	case MCSC_OUTPUT4:
-		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC4_CTRL], &mcsc_fields[MCSC_F_SC4_ENABLE], enable);
 		if (enable)
 			fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC4_CTRL],
 				&mcsc_fields[MCSC_F_SC4_INPUT_SEL], input_source);
+		fimc_is_hw_set_field(base_addr, &mcsc_regs[MCSC_R_SC4_CTRL], &mcsc_fields[MCSC_F_SC4_ENABLE], enable);
 		break;
 	default:
 		break;
@@ -1292,7 +1292,7 @@ void fimc_is_scaler_set_poly_scaler_coef(void __iomem *base_addr, u32 output_id,
 	u32 h_coef = 0, v_coef = 0;
 	/* this value equals 0 - scale-down operation */
 	u32 h_phase_offset = 0, v_phase_offset = 0;
-#if !defined(USE_UVSP_CAC)
+#if !defined(MCSC_COEF_USE_TUNING)
 	bool adjust_coef = false;
 
 	/* M/M dev team guided, x7/8 ~ x5/8 => x8/8 ~ x7/8
@@ -1626,7 +1626,7 @@ void fimc_is_scaler_set_post_scaler_coef(void __iomem *base_addr, u32 output_id,
 	/* this value equals 0 - scale-down operation */
 	u32 h_phase_offset = 0, v_phase_offset = 0;
 
-#if !defined(USE_UVSP_CAC)
+#if !defined(MCSC_COEF_USE_TUNING)
 	h_coef = get_scaler_coef_ver1(hratio, false);
 	v_coef = get_scaler_coef_ver1(vratio, false);
 #else
@@ -1905,7 +1905,7 @@ void fimc_is_scaler_set_bchs_clamp(void __iomem *base_addr, u32 output_id,
 
 	fimc_is_hw_set_reg(base_addr, &mcsc_regs[reg_idx_y], reg_val_y);
 	fimc_is_hw_set_reg(base_addr, &mcsc_regs[reg_idx_c], reg_val_c);
-	dbg_hw(2, "[OUT:%d]set_bchs_clamp_y_c: reg_off(0x%x)= val(0x%x), reg_off(0x%x)= val(0x%x)\n", output_id,
+	dbg_hw(2, "[OUT:%d]set_bchs_clamp: Y:[%#x]%#x, C:[%#x]%#x\n", output_id,
 			mcsc_regs[reg_idx_y].sfr_offset, fimc_is_hw_get_reg(base_addr, &mcsc_regs[reg_idx_y]),
 			mcsc_regs[reg_idx_c].sfr_offset, fimc_is_hw_get_reg(base_addr, &mcsc_regs[reg_idx_c]));
 }
@@ -2444,34 +2444,6 @@ void fimc_is_scaler_set_flip_mode(void __iomem *base_addr, u32 output_id, u32 fl
 	}
 }
 
-void fimc_is_scaler_get_flip_mode(void __iomem *base_addr, u32 output_id, u32 *flip)
-{
-	switch (output_id) {
-	case MCSC_OUTPUT0:
-		*flip = fimc_is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_WDMA0_FLIP_CONTROL],
-				&mcsc_fields[MCSC_F_WDMA0_FLIP_CONTROL]);
-		break;
-	case MCSC_OUTPUT1:
-		*flip = fimc_is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_WDMA1_FLIP_CONTROL],
-				&mcsc_fields[MCSC_F_WDMA1_FLIP_CONTROL]);
-		break;
-	case MCSC_OUTPUT2:
-		*flip = fimc_is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_WDMA2_FLIP_CONTROL],
-				&mcsc_fields[MCSC_F_WDMA2_FLIP_CONTROL]);
-		break;
-	case MCSC_OUTPUT3:
-		*flip = fimc_is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_WDMA3_FLIP_CONTROL],
-				&mcsc_fields[MCSC_F_WDMA3_FLIP_CONTROL]);
-		break;
-	case MCSC_OUTPUT4:
-		*flip = fimc_is_hw_get_field(base_addr, &mcsc_regs[MCSC_R_WDMA4_FLIP_CONTROL],
-				&mcsc_fields[MCSC_F_WDMA4_FLIP_CONTROL]);
-		break;
-	default:
-		break;
-	}
-}
-
 void fimc_is_scaler_set_rdma_size(void __iomem *base_addr, u32 width, u32 height)
 {
 	u32 reg_val = 0;
@@ -2913,24 +2885,26 @@ void fimc_is_scaler_clear_rdma_addr(void __iomem *base_addr)
 
 void fimc_is_scaler_clear_wdma_addr(void __iomem *base_addr, u32 output_id)
 {
-	u32 addr[8] = {0, };
+	u32 addr[8] = {0, }, buf_index;
 
 	get_wdma_addr_arr(output_id, addr);
 	if (!addr[0])
 		return;
 
-	fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[0]], 0x0);
-	fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[0] + 1], 0x0);
+	for (buf_index = 0; buf_index < 8; buf_index++) {
+		fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[buf_index]], 0x0);
+		fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[buf_index] + 1], 0x0);
 
-	/* WDMADS can not support 10bit format */
-	if (output_id == MCSC_OUTPUT_DS)
-		return;
+		/* WDMADS can not support 10bit format */
+		if (output_id == MCSC_OUTPUT_DS)
+			continue;
 
-	fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[0] + 2], 0x0);
+		fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[buf_index] + 2], 0x0);
 
-	/* DMA 2bit Y, CR address clear */
-	fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[0] + 3], 0x0);
-	fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[0] + 4], 0x0);
+		/* DMA 2bit Y, CR address clear */
+		fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[buf_index] + 3], 0x0);
+		fimc_is_hw_set_reg(base_addr, &mcsc_regs[addr[buf_index] + 4], 0x0);
+	}
 }
 
 /* for tdnr : Not supported in makalu */
@@ -3499,7 +3473,7 @@ void fimc_is_scaler_set_djag_tunning_param(void __iomem *base_addr, const struct
 	reg_val = fimc_is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG_SAT_CTRL],
 		djag_tune->dither_cfg.sat_ctrl);
 	reg_val = fimc_is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG_DITHER_SAT_THRES],
-		djag_tune->dither_cfg.dither_sat_thres);
+		djag_tune->dither_cfg.dither_sat_thres); /* EVT0 only */
 	reg_val = fimc_is_hw_set_field_value(reg_val, &mcsc_fields[MCSC_F_DJAG_DITHER_THRES],
 		djag_tune->dither_cfg.dither_thres);
 	fimc_is_hw_set_reg(base_addr, &mcsc_regs[MCSC_R_DJAG_DITHER_THRES], reg_val);
@@ -3523,7 +3497,9 @@ void fimc_is_scaler_set_djag_dither_wb(void __iomem *base_addr, struct djag_wb_t
 {
 	u32 reg_val = 0;
 
+#if !defined(CONFIG_SOC_EXYNOS9820_EVT0)
 	if (!djag_wb)
+#endif
 		return;
 
 	reg_val = fimc_is_hw_get_reg(base_addr, &mcsc_regs[MCSC_R_DJAG_DITHER_THRES]);

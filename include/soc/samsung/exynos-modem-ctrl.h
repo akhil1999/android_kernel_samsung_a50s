@@ -13,9 +13,30 @@
 #ifndef __EXYNOS_MODEM_CTRL_H
 #define __EXYNOS_MODEM_CTRL_H
 
-#if defined(CONFIG_SEC_MODEM_IF)
+#include <linux/skbuff.h>
+
+#if defined(CONFIG_SEC_SIPC_MODEM_IF) || defined(CONFIG_SEC_MODEM_IF)
 extern int modem_force_crash_exit_ext(void);
 extern int modem_send_panic_noti_ext(void);
+extern bool __skb_free_head_cp_zerocopy(struct sk_buff *skb);
+
+#if defined(CONFIG_CP_ZEROCOPY)
+/**
+ @brief		skb_free_head_cp_zerocopy
+ @param skb	the pointer to skbuff
+ @return bool	return true if skb->data in zerocopy buffer,
+		not to do a rest of skb_free_head process.
+*/
+static inline bool skb_free_head_cp_zerocopy(struct sk_buff *skb)
+{
+	return __skb_free_head_cp_zerocopy(skb);
+}
+#else
+static inline bool skb_free_head_cp_zerocopy(struct sk_buff *skb) {
+	return false;
+}
+#endif
+
 #else /* CONFIG_SEC_MODEM_IF */
 static inline int modem_force_crash_exit_ext(void) { return 0; }
 static inline int modem_send_panic_noti_ext(void) { return 0; }

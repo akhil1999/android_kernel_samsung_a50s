@@ -276,49 +276,57 @@ int shm_get_use_cp_memory_map_flag(void)
 	return pdata.use_cp_memory_map;
 }
 
-unsigned long shm_get_security_param3(unsigned long mode, u32 main_size)
+int shm_get_security_param3(unsigned long mode, u32 main_size, unsigned long *param)
 {
-	unsigned long ret;
+	int ret = 0;
 
 	switch (mode) {
 	case 0: /* CP_BOOT_MODE_NORMAL */
-		ret = main_size;
+		*param = main_size;
 		break;
 	case 1: /* CP_BOOT_MODE_DUMP */
 #ifdef CP_NONSECURE_BOOT
-		ret = pdata.p_addr;
+		*param = pdata.p_addr;
 #else
-		ret = pdata.p_addr + pdata.ipc_off;
+		*param = pdata.p_addr + pdata.ipc_off;
 #endif
 		break;
 	case 2: /* CP_BOOT_RE_INIT */
-		ret = 0;
+		*param = 0;
+		break;
+	case 7: /* CP_BOOT_MODE_MANUAL */
+		*param = main_size;
 		break;
 	default:
 		pr_info("%s: Invalid sec_mode(%lu)\n", __func__, mode);
-		ret = 0;
+		ret = -EINVAL;
 		break;
 	}
+
 	return ret;
 }
 
-unsigned long shm_get_security_param2(unsigned long mode, u32 bl_size)
+int shm_get_security_param2(unsigned long mode, u32 bl_size, unsigned long *param)
 {
-	unsigned long ret;
+	int ret = 0;
 
 	switch (mode) {
 	case 0: /* CP_BOOT_MODE_NORMAL */
 	case 1: /* CP_BOOT_MODE_DUMP */
-		ret = bl_size;
+		*param = bl_size;
 		break;
 	case 2: /* CP_BOOT_RE_INIT */
-		ret = 0;
+		*param = 0;
+		break;
+	case 7: /* CP_BOOT_MODE_MANUAL */
+		*param = pdata.p_addr + bl_size;
 		break;
 	default:
 		pr_info("%s: Invalid sec_mode(%lu)\n", __func__, mode);
-		ret = 0;
+		ret = -EINVAL;
 		break;
 	}
+
 	return ret;
 }
 
@@ -460,6 +468,7 @@ static void shm_free_reserved_mem(unsigned long addr, unsigned size)
 	struct page *page;
 
 	pr_err("Release cplog reserved memory\n");
+	free_memsize_reserved(addr, size);
 	for (i = 0; i < (size >> PAGE_SHIFT); i++) {
 		page = phys_to_page(addr);
 		addr += PAGE_SIZE;
@@ -540,6 +549,15 @@ struct cp_reserved_map_table {
 	unsigned int	end_flag_not_used;		// Memory guard for CP boot code
 };
 
+struct cp_toc_element {
+	char name[12];					// Binary name
+	u32 b_offset;					// Binary offset in the file
+	u32 m_offset;					// Memory Offset to be loaded
+	u32 size;					// Binary size
+	u32 crc;					// CRC value
+	u32 toc_count;					// Reserved
+} __packed;
+
 struct cp_reserved_map_table cp_mem_map;
 
 static int verify_cp_memory_map(struct cp_reserved_map_table *tab)
@@ -549,7 +567,6 @@ static int verify_cp_memory_map(struct cp_reserved_map_table *tab)
 	int verify = 1;
 
 	if (tab->ext_bin_count <= 0 || (tab->ext_bin_count > EXTERN_BIN_MAX_COUNT)) {
-		pr_err("ERROR ext_bin_count=%d\n", tab->ext_bin_count);
 		verify = 0;
 		goto exit;
 	}
@@ -557,10 +574,6 @@ static int verify_cp_memory_map(struct cp_reserved_map_table *tab)
 	for (i = 1; i < total_bin; i++) {
 		if (cp_mem_map.sExtBin[i-1].ext_bin_addr + cp_mem_map.sExtBin[i-1].ext_bin_size
 				!=  cp_mem_map.sExtBin[i].ext_bin_addr) {
-			pr_err("ERROR ext_bin_addr[%d]=0x%08x ext_bin_size[%d]=0x%08x ext_bin_addr[%d]=0x%08x\n",
-					i-1, cp_mem_map.sExtBin[i-1].ext_bin_addr,
-					i-1, cp_mem_map.sExtBin[i-1].ext_bin_size,
-					i, cp_mem_map.sExtBin[i].ext_bin_addr);
 			verify = 0;
 			goto exit;
 		}
@@ -579,14 +592,20 @@ static int shm_probe(struct platform_device *pdev)
 	char *ptr;
 	struct device_node *np_acpm = of_find_node_by_name(NULL, "acpm_ipc");
 	void __iomem *cp_mem_base;
+	struct cp_toc_element *cp_toc_info;
 	char table_id_ver[5];
 
 	dev_err(dev, "%s: shmem driver init\n", __func__);
 
 	cp_mem_base = shm_request_region(pdata.p_addr, PAGE_SIZE);
-	dev_info(dev, "cp_mem_base: 0x%lx, 0x%p\n", pdata.p_addr, cp_mem_base);
-	/* 0x200: TOC, 0xa0: cp memory map offset */
-	memcpy(&cp_mem_map, cp_mem_base + 0x200 + 0xa0, sizeof(struct cp_reserved_map_table));
+	dev_info(dev, "cp_mem_base: 0x%lx, 0x%pK\n", pdata.p_addr, cp_mem_base);
+
+	/* get 2nd TOC table : BOOT bin info */
+	cp_toc_info = (struct cp_toc_element *)(cp_mem_base + sizeof(struct cp_toc_element));
+	dev_info(dev, "cp_boot_offset: 0x%lx\n", cp_toc_info->b_offset);
+
+	/* 0xa0: cp memory map offset */
+	memcpy(&cp_mem_map, cp_mem_base + cp_toc_info->b_offset + 0xa0, sizeof(struct cp_reserved_map_table));
 
 	if (cp_mem_base) {
 		vunmap(cp_mem_base);
@@ -650,7 +669,7 @@ static int shm_probe(struct platform_device *pdev)
 			return -EINVAL;
 		}
 
-#ifdef CONFIG_SEC_SIPC_MODEM_IF
+#ifdef CONFIG_CP_ZEROCOPY
 		ret = of_property_read_u32(dev->of_node, "shmem,zmb_offset",
 				&pdata.zmb_off);
 		if (ret) {

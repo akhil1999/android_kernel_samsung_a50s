@@ -108,18 +108,21 @@ enum exynos_sensor_id {
 	SENSOR_NAME_SAK2L3		 = 36,
 	SENSOR_NAME_SAK2L4		 = 37,
 	SENSOR_NAME_S5K3J1		 = 38,
-	SENSOR_NAME_S5K4HA               = 39,
+	SENSOR_NAME_S5K4HA		 = 39,
 	SENSOR_NAME_S5K3P9		 = 40,
 	SENSOR_NAME_S5K5E9		 = 41,
-	SENSOR_NAME_S5K2X5SP		 = 42,
-	SENSOR_NAME_S5KGM1SP		 = 43,
 	SENSOR_NAME_S5K3P8SP		 = 44,
 	SENSOR_NAME_S5K2P7SX		 = 45,
 	SENSOR_NAME_S5KRPB		 = 46,
 	SENSOR_NAME_S5K2P7SQ		 = 47,
 	SENSOR_NAME_S5K2T7SX		 = 48,
+	SENSOR_NAME_S5K2PAS		 = 49,
+	SENSOR_NAME_S5K3M5		 = 50,
 	SENSOR_NAME_S5K4EC		 = 57,
 	SENSOR_NAME_S5K2P6		 = 58,
+	SENSOR_NAME_S5K3L6		 = 59,
+	SENSOR_NAME_S5K2X5		 = 60,
+	SENSOR_NAME_S5KGM2		 = 61,
 
 	/* 101~200: SONY sensors */
 	SENSOR_NAME_IMX135		 = 101,
@@ -137,6 +140,11 @@ enum exynos_sensor_id {
 	SENSOR_NAME_IMX241		 = 113,
 	SENSOR_NAME_IMX345		 = 114,
 	SENSOR_NAME_IMX576		 = 115,
+	SENSOR_NAME_IMX316		 = 116,
+	SENSOR_NAME_IMX586		 = 117,
+	SENSOR_NAME_IMX471		 = 118,
+	SENSOR_NAME_IMX582		 = 120,
+	SENSOR_NAME_IMX616		 = 121,
 
 	/* 201~255: Other vendor sensors */
 	SENSOR_NAME_SR261		 = 201,
@@ -146,9 +154,11 @@ enum exynos_sensor_id {
 	SENSOR_NAME_DSIM		 = 205,
 	SENSOR_NAME_SR259		 = 206,
 	SENSOR_NAME_VIRTUAL		 = 207,
-	SENSOR_NAME_OV12A10		 = 208,
-	SENSOR_NAME_OV12A10FF		 = 209,
-	SENSOR_NAME_OV16885C		 = 210,
+	SENSOR_NAME_SR846		 = 208,
+	SENSOR_NAME_SR556		 = 209,
+	SENSOR_NAME_GC5035		 = 210,
+	SENSOR_NAME_HI1336		 = 211,
+	SENSOR_NAME_HI1631		 = 213,
 
 	/* 256~: currently not used */
 	SENSOR_NAME_CUSTOM		 = 301,
@@ -182,30 +192,31 @@ enum actuator_name {
 	ACTUATOR_NAME_AK7372 = 16,
 	ACTUATOR_NAME_AK7371_DUAL = 17,
 	ACTUATOR_NAME_AK737X = 18,
-	ACTUATOR_NAME_DW9780	= 19,
-	ACTUATOR_NAME_LC898217	= 20,
-	ACTUATOR_NAME_ZC569 = 21,
-	ACTUATOR_NAME_DW9823	= 22,
-	ACTUATOR_NAME_DW9839	= 23,
+	ACTUATOR_NAME_DW9808   = 19,
+	ACTUATOR_NAME_ZC535   = 20,
+	ACTUATOR_NAME_ZC569	= 21,
+	ACTUATOR_NAME_DW9823  = 22,
+
 	ACTUATOR_NAME_END,
 	ACTUATOR_NAME_NOTHING	= 100,
 };
 
 enum flash_drv_name {
-	FLADRV_NAME_KTD267	= 1,	/* Gpio type(Flash mode, Movie/torch mode) */
+	FLADRV_NAME_KTD267		= 1,	/* Gpio type(Flash mode, Movie/torch mode) */
 	FLADRV_NAME_AAT1290A	= 2,
 	FLADRV_NAME_MAX77693	= 3,
-	FLADRV_NAME_AS3643	= 4,
+	FLADRV_NAME_AS3643		= 4,
 	FLADRV_NAME_KTD2692	= 5,
-	FLADRV_NAME_LM3560	= 6,
+	FLADRV_NAME_LM3560		= 6,
 	FLADRV_NAME_SKY81296	= 7,
-	FLADRV_NAME_RT5033	= 8,
-	FLADRV_NAME_AS3647	= 9,
-	FLADRV_NAME_LM3646	= 10,
-	FLADRV_NAME_DRV_FLASH_GPIO = 11, /* Common Gpio type(Flash mode, Movie/torch mode) */
-	FLADRV_NAME_LM3644	= 12,
-	FLADRV_NAME_DRV_FLASH_I2C = 13, /* Common I2C type */
-	FLADRV_NAME_S2MU106	= 14,
+	FLADRV_NAME_RT5033		= 8,
+	FLADRV_NAME_AS3647		= 9,
+	FLADRV_NAME_LM3646		= 10,
+	FLADRV_NAME_DRV_FLASH_GPIO	= 11, /* Common Gpio type(Flash mode, Movie/torch mode) */
+	FLADRV_NAME_LM3644		= 12,
+	FLADRV_NAME_DRV_FLASH_I2C	= 13, /* Common I2C type */
+	FLADRV_NAME_RT8547		= 16,
+
 	FLADRV_NAME_END,
 	FLADRV_NAME_NOTHING	= 100,
 };
@@ -228,7 +239,6 @@ enum preprocessor_name {
 enum ois_name {
 	OIS_NAME_RUMBA_S4	= 1,
 	OIS_NAME_RUMBA_S6	= 2,
-	OIS_NAME_ROHM_BU24218GWL= 3,
 	OIS_NAME_END,
 	OIS_NAME_NOTHING	= 100,
 };
@@ -243,16 +253,6 @@ enum aperture_name {
 	APERTURE_NAME_AK7372	= 1,
 	APERTURE_NAME_END,
 	APERTURE_NAME_NOTHING	= 100,
-};
-
-enum eeprom_name {
-	EEPROM_NAME_GM1		= 1,
-	EEPROM_NAME_5E9		= 2,
-	EEPROM_NAME_12A10 	= 3,
-	EEPROM_NAME_12A10FF	= 4,
-	EEPROM_NAME_16885C 	= 5,
-	EEPROM_NAME_END,
-	EEPROM_NAME_NOTHING	= 100,
 };
 
 enum sensor_peri_type {
@@ -338,7 +338,6 @@ struct sensor_open_extended {
 	struct sensor_protocol1 ois_con;
 	struct sensor_protocol1 aperture_con;
 	struct sensor_protocol1 mcu_con;
-	struct sensor_protocol1 eeprom_con;
 	u32 mclk;
 	u32 mipi_lane_num;
 	u32 mipi_speed;
@@ -367,6 +366,7 @@ struct exynos_platform_fimc_is_sensor {
 	u32 csi_mux;
 	u32 multi_ch;
 	u32 camif_mux_val;
+	u32 camif_mux_val_s;
 };
 
 int exynos_fimc_is_sensor_iclk_cfg(struct device *dev,

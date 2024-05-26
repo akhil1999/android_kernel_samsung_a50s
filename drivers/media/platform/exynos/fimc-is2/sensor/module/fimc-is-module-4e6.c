@@ -616,18 +616,12 @@ struct fimc_is_sensor_ops module_4e6_ops = {
 };
 
 #ifdef CONFIG_OF
-static int sensor_4e6_power_setpin(struct platform_device *pdev,
+static int sensor_4e6_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_none = 0, gpio_reset = 0, gpio_standby = 0;
 	int gpio_mclk = 0;
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
 	if (!gpio_is_valid(gpio_reset)) {
@@ -739,7 +733,7 @@ int sensor_4e6_vision_probe(struct i2c_client *client,
 	dev = &client->dev;
 
 #ifdef CONFIG_OF
-	/* fimc_is_sensor_module_parse_dt(pdev, sensor_4e6_power_setpin); */
+	/* fimc_is_module_parse_dt(dev, sensor_4e6_power_setpin); */
 #endif
 
 	pdata = dev_get_platdata(dev);
@@ -896,7 +890,7 @@ int sensor_4e6_probe(struct platform_device *pdev)
 	dev = &pdev->dev;
 
 #ifdef CONFIG_OF
-	fimc_is_sensor_module_parse_dt(pdev, sensor_4e6_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_4e6_power_setpin);
 #endif
 
 	pdata = dev_get_platdata(dev);

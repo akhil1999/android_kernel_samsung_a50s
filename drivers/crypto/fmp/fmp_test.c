@@ -116,7 +116,7 @@ struct fmp_test_data *fmp_test_init(struct exynos_fmp *fmp)
 {
 	int ret = 0;
 	struct fmp_test_data *data;
-	struct device *dev;
+	struct device *dev = fmp->dev;
 	struct inode *inode;
 	struct super_block *sb;
 	unsigned long blocksize;
@@ -124,14 +124,13 @@ struct fmp_test_data *fmp_test_init(struct exynos_fmp *fmp)
 	fmode_t fmode = FMODE_WRITE | FMODE_READ;
 
 	if (!fmp) {
-		pr_err("%s: Invalid exynos fmp struct\n", __func__);
+		dev_err(dev, "%s: Invalid exynos fmp struct\n", __func__);
 		return NULL;
 	}
 	data = kmalloc(sizeof(struct fmp_test_data), GFP_KERNEL);
 	if (!data)
 		return NULL;
 
-	dev = fmp->dev;
 	ret = get_fmp_host_type(dev, data);
 	if (ret) {
 		dev_err(dev, "%s: Fail to get host type. ret(%d)", __func__,
@@ -210,7 +209,7 @@ int fmp_cipher_run(struct exynos_fmp *fmp, struct fmp_test_data *fdata,
 		/* ci is crypto_tfm_ctx(tfm) */
 		bh->b_private = priv;
 	}
-	op_flags = REQ_CRYPT;
+	op_flags = REQ_CRYPT | REQ_AUX_PRIV;
 
 	if (write == WRITE_MODE) {
 		memcpy(bh->b_data, data, len);

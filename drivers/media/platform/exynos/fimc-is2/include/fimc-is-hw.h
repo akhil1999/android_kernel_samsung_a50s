@@ -229,19 +229,14 @@ enum flite_hw_control_id {
 	FLITE_CTRL_LINE_RATIO,
 };
 
-
-/*
- * This enum will be used in bts_control api to adjust BTS for specific scen.
- */
-enum camera_bts_scn {
-	BTS_SCN_THERMAL,
-};
 /*
  * ******************
  * MIPI-CSIS H/W APIS
  * ******************
  */
 void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance);
+int csi_hw_get_ppc_mode(u32 __iomem *base_reg);
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc);
 int csi_hw_reset(u32 __iomem *base_reg);
 int csi_hw_s_settle(u32 __iomem *base_reg, u32 settle);
 int csi_hw_s_phy_sctrl_n(u32 __iomem *base_reg, u32 ctrl, u32 n);
@@ -326,6 +321,7 @@ int fimc_is_hw_camif_cfg(void *sensor_data);
 int fimc_is_hw_camif_open(void *sensor_data);
 void fimc_is_hw_ischain_qe_cfg(void);
 int fimc_is_hw_ischain_cfg(void *ischain_data);
+void fimc_is_hw_sysreg_mo_limit(bool enable);
 int fimc_is_hw_get_address(void *itfc_data, void *pdev_data, int hw_id);
 int fimc_is_hw_get_irq(void *itfc_data, void *pdev_data, int hw_id);
 int fimc_is_hw_request_irq(void *itfc_data, int hw_id);
@@ -338,7 +334,6 @@ int fimc_is_hw_shared_meta_update(struct fimc_is_device_ischain *device,
 		struct fimc_is_group *group, struct fimc_is_frame *frame, int shot_done_flag);
 void __iomem *fimc_is_hw_get_sysreg(ulong core_regs);
 u32 fimc_is_hw_find_settle(u32 mipi_speed);
-void fimc_is_hw_set_bts_ext_ctrl(enum camera_bts_scn bts_scn, bool enable);
 #ifdef ENABLE_FULLCHAIN_OVERFLOW_RECOVERY
 int fimc_is_hw_overflow_recovery(void);
 #endif

@@ -943,8 +943,8 @@ void phy_exynos_usb_v3p1_config_host_mode(struct exynos_usbphy_info *info)
 
 void phy_exynos_usb_v3p1_tune(struct exynos_usbphy_info *info)
 {
-	u32 hsp_tune, ssp_tune0, ssp_tune1, ssp_tune2, cnt;
-
+	u32 ssp_tune0, ssp_tune1, ssp_tune2, cnt;
+	u32 hsp_tune = 0;
 	bool ss_only_cap;
 
 	ss_only_cap = (info->version & EXYNOS_USBCON_VER_SS_CAP) >> 4;
@@ -1066,6 +1066,7 @@ void phy_exynos_usb_v3p1_tune(struct exynos_usbphy_info *info)
 		writel(ssp_tune1, ss_reg_base + EXYNOS_USBCON_SSP_PARACON1);
 		writel(ssp_tune2, ss_reg_base + EXYNOS_USBCON_SSP_TEST);
 	} /* else */
+	printk("usb: %s: hsp_tune=0x%x\n", __func__, hsp_tune);
 }
 
 void phy_exynos_usb_v3p1_tune_each(struct exynos_usbphy_info *info,

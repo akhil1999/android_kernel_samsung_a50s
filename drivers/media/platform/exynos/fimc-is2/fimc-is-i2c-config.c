@@ -74,6 +74,9 @@ int fimc_is_i2c_pin_control(struct fimc_is_module_enum *module, u32 scenario, u3
 	sensor_peri = (struct fimc_is_device_sensor_peri *)module->private_data;
 	device = v4l2_get_subdev_hostdata(module->subdev);
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
+
+	FIMC_BUG(!core);
+
 	specific = core->vender.private_data;
 
 	switch (scenario) {
@@ -86,12 +89,11 @@ int fimc_is_i2c_pin_control(struct fimc_is_module_enum *module, u32 scenario, u3
 		}
 		if (device->ois) {
 			i2c_channel = module->ext.ois_con.peri_setting.i2c.channel;
-			if (core != NULL) {
-				if (i2c_config_state == I2C_PIN_STATE_ON)
-					atomic_inc(&core->i2c_rsccount[i2c_channel]);
-				else if (i2c_config_state == I2C_PIN_STATE_OFF)
-					atomic_dec(&core->i2c_rsccount[i2c_channel]);
-			}
+
+			if (i2c_config_state == I2C_PIN_STATE_ON)
+				atomic_inc(&core->i2c_rsccount[i2c_channel]);
+			else if (i2c_config_state == I2C_PIN_STATE_OFF)
+				atomic_dec(&core->i2c_rsccount[i2c_channel]);
 
 			if (atomic_read(&core->i2c_rsccount[i2c_channel]) == value) {
 				info("%s[%d] ois i2c config(%d), position(%d), scenario(%d), i2c_channel(%d)\n",
@@ -128,10 +130,10 @@ int fimc_is_i2c_pin_control(struct fimc_is_module_enum *module, u32 scenario, u3
 		}
 		break;
 	case SENSOR_SCENARIO_READ_ROM:
-		if (module->pdata->rom_id >= ROM_ID_REAR && module->pdata->rom_id < ROM_ID_MAX) {
-			info("%s[%d] eeprom i2c config(%d), rom_id(%d), scenario(%d)\n",
-				__func__, __LINE__, i2c_config_state, module->pdata->rom_id, scenario);
-			ret |= fimc_is_i2c_pin_config(specific->eeprom_client[module->pdata->rom_id], i2c_config_state);
+		if (device->actuator[module->position]) {
+			info("%s[%d] actuator i2c config(%d), position(%d), scenario(%d)\n",
+				__func__, __LINE__, i2c_config_state, module->position, scenario);
+			ret |= fimc_is_i2c_pin_config(device->actuator[module->position]->client, i2c_config_state);
 		}
 		break;
 	case SENSOR_SCENARIO_SECURE:

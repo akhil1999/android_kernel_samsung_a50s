@@ -65,9 +65,6 @@ static const u32 **sensor_2l3_load_sram;
 static const u32 *sensor_2l3_load_sram_size;
 #endif
 
-static bool i2c_log_enable;
-static int i2c_log_frame_count;
-
 static int ln_mode_delay_count;
 static u8 ln_mode_frame_count;
 
@@ -87,6 +84,90 @@ static bool sensor_2l3_cis_is_wdr_mode_on(cis_shared_data *cis_data)
 
 	return sensor_2l3_support_wdr[mode];
 }
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_2l3_cis_set_mipi_clock(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	return ret;
+}
+#endif
+
+#ifdef USE_CAMERA_EMBEDDED_HEADER
+#define SENSOR_2L3_PAGE_LENGTH 256
+#define SENSOR_2L3_VALID_TAG 0x5A
+#define SENSOR_2L3_FRAME_ID_PAGE 1
+#define SENSOR_2L3_FRAME_ID_OFFSET 190
+#define SENSOR_2L3_FLL_MSB_PAGE 1
+#define SENSOR_2L3_FLL_MSB_OFFSET 48
+#define SENSOR_2L3_FLL_LSB_PAGE 1
+#define SENSOR_2L3_FLL_LSB_OFFSET 50
+#define SENSOR_2L3_FRAME_COUNT_PAGE 0
+#define SENSOR_2L3_FRAME_COUNT_OFFSET 16
+
+#ifdef USE_CAMERA_SSM_TEST
+static int record_status;
+#endif
+static u32 frame_id_idx = (SENSOR_2L3_PAGE_LENGTH * SENSOR_2L3_FRAME_ID_PAGE) + SENSOR_2L3_FRAME_ID_OFFSET;
+static u32 fll_msb_idx = (SENSOR_2L3_PAGE_LENGTH * SENSOR_2L3_FLL_MSB_PAGE) + SENSOR_2L3_FLL_MSB_OFFSET;
+static u32 fll_lsb_idx = (SENSOR_2L3_PAGE_LENGTH * SENSOR_2L3_FLL_LSB_PAGE) + SENSOR_2L3_FLL_LSB_OFFSET;
+static u32 llp_msb_idx = (SENSOR_2L3_PAGE_LENGTH * SENSOR_2L3_FLL_MSB_PAGE) + SENSOR_2L3_FLL_MSB_OFFSET+4;
+static u32 llp_lsb_idx = (SENSOR_2L3_PAGE_LENGTH * SENSOR_2L3_FLL_LSB_PAGE) + SENSOR_2L3_FLL_LSB_OFFSET+4;
+static u32 frame_count_idx = (SENSOR_2L3_PAGE_LENGTH * SENSOR_2L3_FRAME_COUNT_PAGE) + SENSOR_2L3_FRAME_COUNT_OFFSET;
+
+static int sensor_2l3_cis_get_frame_id(struct v4l2_subdev *subdev, u8 *embedded_buf, u16 *frame_id)
+{
+	int ret = 0;
+	struct fimc_is_cis *cis = NULL;
+
+	WARN_ON(!subdev);
+
+	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
+	WARN_ON(!cis);
+	WARN_ON(!cis->cis_data);
+
+	if (embedded_buf[frame_id_idx-1] == SENSOR_2L3_VALID_TAG) {
+		*frame_id = embedded_buf[frame_id_idx];
+
+		dbg_sensor(1, "%s - frame_count(%d)", __func__, embedded_buf[frame_count_idx]);
+		dbg_sensor(1, "%s - frame_id(%d)", __func__, *frame_id);
+		dbg_sensor(1, "%s - frame length line(%x)",
+				__func__, ((embedded_buf[fll_msb_idx]<<8)|embedded_buf[fll_lsb_idx]));
+		dbg_sensor(1, "%s - line length pclk(%x)",
+				__func__, ((embedded_buf[llp_msb_idx]<<8)|embedded_buf[llp_lsb_idx]));
+
+#ifdef USE_CAMERA_SSM_TEST
+		if (embedded_buf[frame_count_idx] == 254) {
+			switch (record_status) {
+			case 0:
+				fimc_is_sensor_write8(cis->client, 0x0A52, 0x01);
+				record_status++;
+				break;
+			case 1:
+				fimc_is_sensor_write8(cis->client, 0x0A54, 0x01);
+				record_status++;
+				break;
+			case 5:
+				fimc_is_sensor_write8(cis->client, 0x0A53, 0x01);
+				record_status++;
+				break;
+			case 10:
+				record_status = 0;
+				break;
+			default:
+				record_status++;
+				break;
+			}
+		}
+#endif
+	} else {
+		err("%s : invalid valid tag(%x)", __func__, embedded_buf[frame_id_idx-1]);
+		*frame_id = 1;
+	}
+
+	return ret;
+}
+#endif
 
 static void sensor_2l3_set_integration_max_margin(u32 mode, cis_shared_data *cis_data)
 {
@@ -249,11 +330,8 @@ void sensor_2l3_cis_data_calc(struct v4l2_subdev *subdev, u32 mode)
 		if (need_cancel_retention_mode) {
 			info("[%s] need cancel retention mode\n", __func__);
 			fimc_is_sensor_write16(cis->client, 0x602A, 0x10B4);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x602A, 0x10B4)\n", __func__);
 			fimc_is_sensor_write16(cis->client, 0x6F12, 0x0000);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x0000)\n", __func__);
 			fimc_is_sensor_write16(cis->client, 0x6F12, 0x0000);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x0000)\n", __func__);
 		}
 	}
 
@@ -435,6 +513,10 @@ int sensor_2l3_cis_init(struct v4l2_subdev *subdev)
 	cis->need_mode_change = false;
 	cis->long_term_mode.sen_strm_off_on_step = 0;
 	cis->long_term_mode.sen_strm_off_on_enable = false;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	sensor_2l3_cis_data_calculation(sensor_2l3_pllinfos[setfile_index], cis->cis_data);
 	sensor_2l3_set_integration_max_margin(setfile_index, cis->cis_data);
@@ -464,9 +546,6 @@ int sensor_2l3_cis_init(struct v4l2_subdev *subdev)
 	do_gettimeofday(&end);
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
 #endif
-
-	i2c_log_enable = true;
-
 p_err:
 	return ret;
 }
@@ -594,7 +673,6 @@ static int sensor_2l3_cis_group_param_hold_func(struct v4l2_subdev *subdev, unsi
 	}
 
 	ret = fimc_is_sensor_write8(client, 0x0104, hold);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0104, 0x%02x)\n", __func__, hold);
 	if (ret < 0)
 		goto p_err;
 
@@ -748,16 +826,13 @@ int sensor_2l3_cis_retention_crc_enable(struct v4l2_subdev *subdev, u32 mode)
 	default:
 		/* Sensor stream on */
 		fimc_is_sensor_write16(client, 0x0100, 0x0103);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0100, 0x0103)\n", __func__);
 
 		/* retention mode CRC check register enable */
 		fimc_is_sensor_write8(client, 0x010E, 0x01);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x010E, 0x01)\n", __func__);
 		info("[MOD:D:%d] %s : retention enable CRC check\n", cis->id, __func__);
 
 		/* Sensor stream off */
 		fimc_is_sensor_write8(client, 0x0100, 0x00);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0100, 0x00)\n", __func__);
 		break;
 	}
 
@@ -837,8 +912,6 @@ int sensor_2l3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 	ln_mode_delay_count = 0;
 
-	i2c_log_frame_count = 0;
-	i2c_log_enable = true;
 	sensor_peri = container_of(cis, struct fimc_is_device_sensor_peri, cis);
 	module = sensor_peri->module;
 	ext_info = &module->ext;
@@ -860,6 +933,10 @@ int sensor_2l3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	sensor_2l3_cis_data_calculation(sensor_2l3_pllinfos[mode], cis->cis_data);
 #endif
 	sensor_2l3_set_integration_max_margin(mode, cis->cis_data);
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	if (mode == SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION1) {
 		sensor_2l3_cis_set_global_setting_dramtest(subdev);
@@ -1019,19 +1096,14 @@ int sensor_2l3_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
 	ln_mode_delay_count = 3;
 
 	ret = fimc_is_sensor_write16(cis->client, 0x0104, 0x0101);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0104, 0x0101)\n", __func__);
 
 	switch (cis->cis_data->cur_lownoise_mode) {
 	case FIMC_IS_CIS_LNOFF:
 		dbg_sensor(1, "[%s] FIMC_IS_CIS_LNOFF\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x6028, 0x2000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6028, 0x0200)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x602A, 0xB65B);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x602A, 0xB65B)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x6F12, 0x0100);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x0100)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x0B30, 0x0100);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0B30, 0x0100)\n", __func__);
 
 #ifdef CAMERA_REAR2
 		switch (mode) {
@@ -1040,18 +1112,14 @@ int sensor_2l3_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
 		case SENSOR_2L3_4032X1960_30FPS:
 		case SENSOR_2L3_3024X3024_30FPS:
 			ret |= fimc_is_sensor_write16(cis->client, 0x30E4, 0x0054);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E4, 0x0054)\n", __func__);
 			ret |= fimc_is_sensor_write16(cis->client, 0x30E6, 0x0500);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E6, 0x0500)\n", __func__);
 			break;
 		case SENSOR_2L3_4032X3024_24FPS:
 		case SENSOR_2L3_4032X2268_24FPS:
 		case SENSOR_2L3_4032X1960_24FPS:
 		case SENSOR_2L3_3024X3024_24FPS:
 			ret |= fimc_is_sensor_write16(cis->client, 0x30E4, 0x0075);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E4, 0x0075)\n", __func__);
 			ret |= fimc_is_sensor_write16(cis->client, 0x30E6, 0xA500);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E6, 0xA500)\n", __func__);
 			break;
 		}
 #endif
@@ -1059,37 +1127,25 @@ int sensor_2l3_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
 	case FIMC_IS_CIS_LN2:
 		dbg_sensor(1, "[%s] FIMC_IS_CIS_LN2\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x6028, 0x2000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6028, 0x0200)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x602A, 0xB65B);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x602A, 0xB65B)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x6F12, 0x0100);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x0100)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x0B30, 0x0200);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0B30, 0x0200)\n", __func__);
 
 #ifdef CAMERA_REAR2
 		ret |= fimc_is_sensor_write16(cis->client, 0x30E4, 0x0000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E4, 0x0000)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x30E6, 0x0500);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E6, 0x0500)\n", __func__);
 #endif
 		break;
 	case FIMC_IS_CIS_LN4:
 		dbg_sensor(1, "[%s] FIMC_IS_CIS_LN4\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x6028, 0x2000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6028, 0x0200)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x602A, 0xB65B);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x602A, 0xB65B)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x6F12, 0x0100);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x6F12, 0x0100)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x0B30, 0x0300);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0B30, 0x0300)\n", __func__);
 
 #ifdef CAMERA_REAR2
 		ret |= fimc_is_sensor_write16(cis->client, 0x30E4, 0x0000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E4, 0x0000)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x30E6, 0x0500);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x30E6, 0x0500)\n", __func__);
 #endif
 		break;
 	case FIMC_IS_CIS_LN2_PEDESTAL128:
@@ -1120,7 +1176,6 @@ int sensor_2l3_cis_set_lownoise_mode_change(struct v4l2_subdev *subdev)
 	}
 
 	ret |= fimc_is_sensor_write16(cis->client, 0x0104, 0x0001);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0104, 0x0001)\n", __func__);
 
 	if (ret < 0) {
 		err("sensor_2l3_set_registers fail!!");
@@ -1451,6 +1506,9 @@ int sensor_2l3_cis_stream_on(struct v4l2_subdev *subdev)
 	cis_data = cis->cis_data;
 
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	sensor_2l3_cis_set_mipi_clock(subdev);
+#endif
 
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = sensor_2l3_cis_group_param_hold_func(subdev, 0x01);
@@ -1507,7 +1565,6 @@ int sensor_2l3_cis_stream_on(struct v4l2_subdev *subdev)
 	/* Sensor stream on */
 	info("%s\n", __func__);
 	fimc_is_sensor_write16(client, 0x0100, 0x0103);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0100, 0x0103)\n", __func__);
 
 	ret = sensor_2l3_cis_group_param_hold_func(subdev, 0x00);
 	if (ret < 0)
@@ -1592,7 +1649,6 @@ int sensor_2l3_cis_stream_off(struct v4l2_subdev *subdev)
 	/* retention mode CRC check register enable */
 	if (cis->cis_data->cis_rev >= 0xA3) {
 		fimc_is_sensor_write8(client, 0x010E, 0x01);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x010E, 0x01)\n", __func__);
 		info("[MOD:D:%d] %s : retention enable CRC check\n", cis->id, __func__);
 	}
 #endif
@@ -1601,7 +1657,6 @@ int sensor_2l3_cis_stream_off(struct v4l2_subdev *subdev)
 	info("%s: frame_count(0x%x)\n", __func__, cur_frame_count);
 
 	fimc_is_sensor_write8(client, 0x0100, 0x00);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0100, 0x00)\n", __func__);
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
 
 	cis_data->stream_on = false;
@@ -1740,24 +1795,19 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	/* WDR mode */
 	if (sensor_2l3_cis_is_wdr_mode_on(cis_data)) {
 		fimc_is_sensor_write16(cis->client, 0xFCFC, 0x4000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0xFCFC, 0x4000)\n", __func__);
 		fimc_is_sensor_write16(cis->client, 0x021E, 0x0100);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x021E, 0x0100)\n", __func__);
 	} else {
 		fimc_is_sensor_write16(cis->client, 0x021E, 0x0000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x021E, 0x0000)\n", __func__);
 	}
 
 	/* Short exposure */
 	ret = fimc_is_sensor_write16(client, 0x0202, short_coarse_int);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0202, 0x%04x)\n", __func__, short_coarse_int);
 	if (ret < 0)
 		goto p_err;
 
 	/* Long exposure */
 	if (sensor_2l3_cis_is_wdr_mode_on(cis_data)) {
 		ret = fimc_is_sensor_write16(client, 0x0226, long_coarse_int);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0226, 0x%04x)\n", __func__, short_coarse_int);
 		if (ret < 0)
 			goto p_err;
 	}
@@ -1765,7 +1815,6 @@ int sensor_2l3_cis_set_exposure_time(struct v4l2_subdev *subdev, struct ae_param
 	/* CIT shifter */
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
 		ret = fimc_is_sensor_write16(client, 0x0702, coarse_integration_time_shifter);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0702, 0x%04x)\n", __func__, coarse_integration_time_shifter);
 		if (ret < 0)
 			goto p_err;
 	}
@@ -1997,11 +2046,6 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 
 	cis_data = cis->cis_data;
 
-	if (i2c_log_frame_count > 5)
-		i2c_log_enable = false;
-	else
-		i2c_log_frame_count++;
-
 	if (ln_mode_delay_count > 0)
 		ln_mode_delay_count--;
 
@@ -2060,7 +2104,6 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		ret |= sensor_2l3_cis_set_lownoise_mode_change(subdev);
 
 	ret |= fimc_is_sensor_write16(client, 0x0340, frame_length_lines);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0340, 0x%04x)\n", __func__, frame_length_lines);
 
 	if (ret < 0)
 		goto p_err;
@@ -2068,7 +2111,6 @@ int sensor_2l3_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	/* frame duration shifter */
 	if (cis->long_term_mode.sen_strm_off_on_enable == false) {
 		ret = fimc_is_sensor_write8(client, 0x0701, frame_length_lines_shifter);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0701, 0x%02x)\n", __func__, frame_length_lines_shifter);
 		if (ret < 0)
 			goto p_err;
 	}
@@ -2261,7 +2303,6 @@ int sensor_2l3_cis_set_analog_gain(struct v4l2_subdev *subdev, struct ae_param *
 	}
 
 	ret = fimc_is_sensor_write16(client, 0x0204, analog_gain);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0204, 0x%04x)\n", __func__, analog_gain);
 	if (ret < 0)
 		goto p_err;
 
@@ -2518,14 +2559,12 @@ int sensor_2l3_cis_set_digital_gain(struct v4l2_subdev *subdev, struct ae_param 
 
 	/* Short digital gain */
 	ret = fimc_is_sensor_write16(client, 0x020E, short_gain);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x020E, 0x%04x)\n", __func__, short_gain);
 	if (ret < 0)
 		goto p_err;
 
 	/* Long digital gain */
 	if (sensor_2l3_cis_is_wdr_mode_on(cis_data)) {
 		ret = fimc_is_sensor_write16(client, 0x0C80, long_gain);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0C80, 0x%04x)\n", __func__, long_gain);
 		if (ret < 0)
 			goto p_err;
 	}
@@ -2731,20 +2770,14 @@ int sensor_2l3_cis_long_term_exposure(struct v4l2_subdev *subdev)
 			}
 			lte_mode->expo[0] = 125000;
 			ret |= fimc_is_sensor_write16(cis->client, 0xFCFC, 0x4000);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0xFCFC, 0x4000)\n", __func__);
 			ret |= fimc_is_sensor_write8(cis->client, 0x0701, shift_count);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0701, 0x%02x)\n", __func__, shift_count);
 			ret |= fimc_is_sensor_write8(cis->client, 0x0702, shift_count);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0702, 0x%02x)\n", __func__, shift_count);
 		}
 	} else {
 		cit_lshift_val = 0;
 		ret |= fimc_is_sensor_write16(cis->client, 0xFCFC, 0x4000);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0xFCFC, 0x4000)\n", __func__);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0701, cit_lshift_val);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0701, 0x%02x)\n", __func__, cit_lshift_val);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0702, cit_lshift_val);
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0702, 0x%02x)\n", __func__, cit_lshift_val);
 	}
 
 	I2C_MUTEX_UNLOCK(cis->i2c_lock);
@@ -2758,6 +2791,13 @@ int sensor_2l3_cis_long_term_exposure(struct v4l2_subdev *subdev)
 
 	return ret;
 }
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_2l3_cis_update_mipi_info(struct v4l2_subdev *subdev)
+{
+	return 0;
+}
+#endif
 
 int sensor_2l3_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 {
@@ -2782,7 +2822,6 @@ int sensor_2l3_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 	case FRS_SSM_START:
 		pr_info("[%s] SUPER_SLOW_MOTION_START\n", __func__);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0A52, 0x01); /* start_user_record */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A52, 0x01)\n", __func__);
 		/* ret |= fimc_is_sensor_write8(cis->client, 0x0A51, 0x01); *//* enable_preview_during_recording */
 		/* ret |= fimc_is_sensor_write8(cis->client, 0x0A55, 0x08); *//* tg_to_oif_ratio */
 		/* ret |= fimc_is_sensor_write8(cis->client, 0x0A56, 0x02); *//* tg_to_sg_ratio */
@@ -2793,28 +2832,20 @@ int sensor_2l3_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 	case FRS_SSM_MANUAL_CUE_ENABLE:
 		pr_info("[%s] SUPER_SLOW_MOTION_START_MANUAL_CUE\n", __func__);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0A54, 0x01); /* Manual Q Enable */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A54, 0x01)\n", __func__);
 		break;
 	case FRS_SSM_STOP:
 		pr_info("[%s] SUPER_SLOW_MOTION_STOP\n", __func__);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0A53, 0x01); /* stop_user_record */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A53, 0x01)\n", __func__);
 		break;
-	case FRS_SSM_MODE_AUTO_MANUAL_CUE:
+	case FRS_SSM_MODE_AUTO_MANUAL_CUE_16:
 		pr_info("[%s] SUPER_SLOW_MOTION_MODE_AUTO_MANUAL_CUE\n", __func__);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0A50, 0x02);    /* Enable Manual /Auto Q */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A50, 0x02)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x0A5A, 0x0010); /* before_q_frames = 16 */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A5A, 0x0010)\n", __func__);
 		break;
 	case FRS_SSM_MODE_ONLY_MANUAL_CUE:
-		pr_info("[%s] SUPER_SLOW_MOTION_MODE_ONLY_MANUAL_CUE\n", __func__);
 		ret |= fimc_is_sensor_write8(cis->client, 0x0A50, 0x01);    /* Enable Manual Q Only */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A50, 0x01)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x0A58, 0x0000); /* q_mask_frames */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A58, 0x0000)\n", __func__);
 		ret |= fimc_is_sensor_write16(cis->client, 0x0A5A, 0x0000); /* before_q_frames = 0 */
-		dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A5A, 0x0000)\n", __func__);
 		break;
 	case FRS_SSM_MODE_FACTORY_TEST:
 		pr_info("[%s] SUPER_SLOW_MOTION_MODE_FACTORY_TEST\n", __func__);
@@ -2831,7 +2862,6 @@ int sensor_2l3_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 		if (sensor_2l3_max_setfile_num > SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION2) {
 			/* stream off > set dram stage2 > stream on*/
 			fimc_is_sensor_write8(cis->client, 0x0100, 0x00);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0100, 0x00)\n", __func__);
 			pr_info("[%s] FRS dram test section 1 stream off\n", __func__);
 
 			sensor_cis_wait_streamoff(subdev);
@@ -2839,7 +2869,6 @@ int sensor_2l3_cis_set_frs_control(struct v4l2_subdev *subdev, u32 command)
 					sensor_2l3_setfiles[SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION2],
 					sensor_2l3_setfile_sizes[SENSOR_2L3_4032X3024_30FPS_MODE2_DRAM_TEST_SECTION2]);
 			fimc_is_sensor_write16(cis->client, 0x0100, 0x0103);
-			dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0100, 0x0103)\n", __func__);
 			pr_info("[%s] FRS dram test section 2 stream on\n", __func__);
 
 			sensor_cis_wait_streamon(subdev);
@@ -2875,13 +2904,9 @@ int sensor_2l3_cis_set_super_slow_motion_roi(struct v4l2_subdev *subdev, struct 
 		ssm_roi->left, ssm_roi->width, ssm_roi->top, ssm_roi->height);
 
 	ret |= fimc_is_sensor_write16(cis->client, 0x0A64, ssm_roi->left);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A64, 0x%04x)\n", __func__, ssm_roi->left);
 	ret |= fimc_is_sensor_write16(cis->client, 0x0A66, ssm_roi->width);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A66, 0x%04x)\n", __func__, ssm_roi->width);
 	ret |= fimc_is_sensor_write16(cis->client, 0x0A68, ssm_roi->top);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A68, 0x%04x)\n", __func__, ssm_roi->top);
 	ret |= fimc_is_sensor_write16(cis->client, 0x0A6A, ssm_roi->height);
-	dbg_common(i2c_log_enable, "%s : i2c_write", " (0x0A6A, 0x%04x)\n", __func__, ssm_roi->height);
 	if (ret < 0) {
 		pr_err("ERR[%s]: super slow roi setting fail\n", __func__);
 		return ret;
@@ -2973,6 +2998,12 @@ static struct fimc_is_cis_ops cis_ops_2l3 = {
 	.cis_wait_streamon = sensor_cis_wait_streamon,
 	.cis_data_calculation = sensor_2l3_cis_data_calc,
 	.cis_set_long_term_exposure = sensor_2l3_cis_long_term_exposure,
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	.cis_update_mipi_info = sensor_2l3_cis_update_mipi_info,
+#endif
+#ifdef USE_CAMERA_EMBEDDED_HEADER
+	.cis_get_frame_id = sensor_2l3_cis_get_frame_id,
+#endif
 	.cis_set_frs_control = sensor_2l3_cis_set_frs_control,
 	.cis_set_super_slow_motion_roi = sensor_2l3_cis_set_super_slow_motion_roi,
 	.cis_check_rev = sensor_2l3_cis_check_rev,
@@ -3058,6 +3089,13 @@ static int cis_2l3_probe(struct i2c_client *client,
 		sensor_peri->module->client = cis->client;
 		cis->i2c_lock = NULL;
 		cis->ctrl_delay = N_PLUS_TWO_FRAME;
+#ifdef USE_CAMERA_FACTORY_DRAM_TEST
+		cis->factory_dramtest_section2_fcount = SENSOR_2L3_DRAMTEST_SECTION2_FCOUNT;
+#endif
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+		cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+		cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 		cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
 		if (!cis->cis_data) {
 			err("cis_data is NULL");

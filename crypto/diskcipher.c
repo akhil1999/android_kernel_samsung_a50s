@@ -70,10 +70,17 @@ static void print_err(void)
 		ci = &dbg->dump[j].ci;
 
 		if (bio) {
+#ifdef CONFIG_BLK_DEV_CRYPT
 			pr_info
 			    ("%s(%d/%d): bio:%p ci:%p page:%p flag:%x, opf:%x, crypt:%p\n",
 			     __func__, j, dbg->err, bio, ci, &dbg->dump[j].page,
-			     bio->bi_flags, bio->bi_opf, bio->bi_aux_private);
+			     bio->bi_flags, bio->bi_opf, bio->bi_cryptd);
+#else
+			pr_info
+			    ("%s(%d/%d): bio:%p ci:%p page:%p flag:%x, opf:%x\n",
+			     __func__, j, dbg->err, bio, ci, &dbg->dump[j].page,
+			     bio->bi_flags, bio->bi_opf);
+#endif
 			print_hex_dump(KERN_CONT, "bio:", DUMP_PREFIX_OFFSET,
 				16, 1, bio, sizeof(struct bio), false);
 			for (i = 0; i < bio->bi_max_vecs; i++) {
@@ -90,27 +97,6 @@ static void print_err(void)
 				       16, 1, ci->key, sizeof(ci->key), false);
 		}
 	}
-}
-
-static void dump_err(struct crypto_diskcipher *ci, enum diskcipher_dbg api,
-	      struct bio *bio, struct page *page)
-{
-	struct diskc_debug_info *dbg = &diskc_dbg;
-
-	if ((dbg->err < DUMP_MAX) && ci) {
-		struct crypto_tfm *tfm = crypto_diskcipher_tfm(ci);
-
-		dbg->dump[dbg->err].api = api;
-		memcpy(&dbg->dump[dbg->err].ci, crypto_tfm_ctx(tfm),
-		       sizeof(struct fmp_crypto_info));
-
-		if (page)
-			dbg->dump[dbg->err].page = page;
-		if (bio)
-			memcpy(&dbg->dump[dbg->err].bio, bio,
-				sizeof(struct bio));
-	}
-	dbg->err++;
 }
 
 static void disckipher_log_show(struct seq_file *m)
@@ -139,28 +125,43 @@ static void disckipher_log_show(struct seq_file *m)
 }
 
 /* check diskcipher for FBE */
-#define DISKC_FS_ENCRYPT_DEBUG
+#undef DISKC_FS_ENCRYPT_DEBUG /* it's not work on fips */
 #ifdef DISKC_FS_ENCRYPT_DEBUG
+static void dump_err(struct crypto_diskcipher *ci, enum diskcipher_dbg api,
+	      struct bio *bio, struct page *page)
+{
+	struct diskc_debug_info *dbg = &diskc_dbg;
+
+	if ((dbg->err < DUMP_MAX) && ci) {
+		struct crypto_tfm *tfm = crypto_diskcipher_tfm(ci);
+
+		dbg->dump[dbg->err].api = api;
+		memcpy(&dbg->dump[dbg->err].ci, crypto_tfm_ctx(tfm),
+		       sizeof(struct fmp_crypto_info));
+
+		if (page)
+			dbg->dump[dbg->err].page = page;
+		if (bio)
+			memcpy(&dbg->dump[dbg->err].bio, bio,
+				sizeof(struct bio));
+	}
+	dbg->err++;
+}
+
 static bool crypto_diskcipher_check(struct bio *bio)
 {
 	int ret = 0;
 	struct crypto_diskcipher *ci = NULL;
 	struct inode *inode = NULL;
-	struct page *page = NULL;
+	struct page *page = bio->bi_io_vec[0].bv_page;
 
-	if (!bio) {
-		pr_err("%s: doesn't exist bio\n", __func__);
-		goto out;
-	}
-
-	page = bio->bi_io_vec[0].bv_page;
 	if (page && !PageAnon(page) && bio)
 		if (page->mapping)
 			if (page->mapping->host) {
 				if (page->mapping->host->i_crypt_info) {
 					inode = page->mapping->host;
-					ci = fscrypt_get_diskcipher(inode);
-					if (ci && (bio->bi_aux_private != ci)
+					ci = fscrypt_get_bio_cryptd(inode);
+					if (ci && (bio->bi_cryptd != ci)
 					    && (!(bio->bi_flags & REQ_OP_DISCARD))) {
 						pr_err("%s: no sync err\n", __func__);
 						dump_err(ci, DISKC_API_GET, bio, page);
@@ -177,12 +178,11 @@ static bool crypto_diskcipher_check(struct bio *bio)
 					ret = -EINVAL;
 				}
 			}
-out:
 	crypto_diskcipher_debug(DISKC_API_GET, ret);
 	return ret;
 }
 #else
-#define crypto_diskcipher_check(a) ((void)0)
+#define crypto_diskcipher_check(a) (0)
 #endif
 #else
 #define crypto_diskcipher_check(a) (0)
@@ -197,9 +197,9 @@ struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio)
 	}
 
 	if (bio->bi_opf & REQ_CRYPT) {
-		if (bio->bi_aux_private) {
+		if (bio->bi_cryptd) {
 			if (!crypto_diskcipher_check(bio))
-				return bio->bi_aux_private;
+				return bio->bi_cryptd;
 			else
 				return ERR_PTR(-EINVAL);
 		} else {
@@ -211,25 +211,12 @@ struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio)
 	return NULL;
 }
 
-struct inode *crypto_diskcipher_get_inode(struct bio *bio)
-{
-	struct crypto_diskcipher *tfm;
-
-	if (bio->bi_opf & REQ_CRYPT) {
-		tfm = bio->bi_aux_private;
-		return tfm->inode;
-	} else {
-		return NULL;
-	}
-}
-
-void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm,
-			const struct inode *inode, u64 dun)
+void crypto_diskcipher_set(struct bio *bio,
+			struct crypto_diskcipher *tfm, u64 dun)
 {
 	if (bio && tfm) {
-		bio->bi_opf |= REQ_CRYPT;
-		bio->bi_aux_private = tfm;
-		tfm->inode = (struct inode *)inode;
+		bio->bi_opf |= (REQ_CRYPT | REQ_AUX_PRIV);
+		bio->bi_cryptd = tfm;
 #ifdef CONFIG_CRYPTO_DISKCIPHER_DUN
 		if (dun)
 			bio->bi_iter.bi_dun = dun;
@@ -252,7 +239,7 @@ int crypto_diskcipher_setkey(struct crypto_diskcipher *tfm, const char *in_key,
 	struct diskcipher_alg *cra = crypto_diskcipher_alg(base->__crt_alg);
 
 	if (!cra) {
-		pr_err("%s: doesn't exist cra. base:%p", __func__, base);
+		pr_err("%s: doesn't exist cra", __func__);
 		return -EINVAL;
 	}
 
@@ -266,7 +253,7 @@ int crypto_diskcipher_clearkey(struct crypto_diskcipher *tfm)
 	struct diskcipher_alg *cra = crypto_diskcipher_alg(base->__crt_alg);
 
 	if (!cra) {
-		pr_err("%s: doesn't exist cra. base:%p", __func__, base);
+		pr_err("%s: doesn't exist cra", __func__);
 		return -EINVAL;
 	}
 	return cra->clearkey(base);
@@ -276,19 +263,11 @@ int crypto_diskcipher_set_crypt(struct crypto_diskcipher *tfm, void *req)
 {
 	int ret = 0;
 	struct crypto_tfm *base = crypto_diskcipher_tfm(tfm);
-	struct diskcipher_alg *cra = NULL;
+	struct diskcipher_alg *cra = crypto_diskcipher_alg(base->__crt_alg);
 
-	if (!base || (base && !virt_addr_valid(base))) {
-		pr_err("%s: doesn't exist base, tfm:%p, base:%p(vaild:%d)\n",
-			__func__, tfm, base, virt_addr_valid(base));
-		ret = -EINVAL;
-		goto out;
-	}
-
-	cra = crypto_diskcipher_alg(base->__crt_alg);
 	if (!cra) {
-		pr_err("%s: doesn't exist cra:%p base:%p\n",__func__, cra, base);
-		ret = -EINVAL;
+		pr_err("%s: doesn't exist cra", __func__);
+		ret = EINVAL;
 		goto out;
 	}
 
@@ -299,6 +278,7 @@ int crypto_diskcipher_set_crypt(struct crypto_diskcipher *tfm, void *req)
 	}
 
 	ret = cra->crypt(base, req);
+
 #ifdef USE_FREE_REQ
 	if (!list_empty(&cra->freectrl.freelist)) {
 		if (!atomic_read(&cra->freectrl.freewq_active)) {
@@ -318,25 +298,12 @@ int crypto_diskcipher_clear_crypt(struct crypto_diskcipher *tfm, void *req)
 {
 	int ret = 0;
 	struct crypto_tfm *base = crypto_diskcipher_tfm(tfm);
-	struct diskcipher_alg *cra = NULL;
+	struct diskcipher_alg *cra = crypto_diskcipher_alg(base->__crt_alg);
 
-	if (!base || (base && !virt_addr_valid(base))) {
-		pr_err("%s: doesn't exist base, tfm:%p, base:%p(vaild:%d)\n",
-			__func__, tfm, base, virt_addr_valid(base));
-		ret = -EINVAL;
-		goto out;
-	}
-
-	cra = crypto_diskcipher_alg(base->__crt_alg);
 	if (!cra) {
-		pr_err("%s: doesn't exist cra:%p base:%p\n",__func__, cra, base);
-		ret = -EINVAL;
+		pr_err("%s: doesn't exist cra", __func__);
+		ret = EINVAL;
 		goto out;
-	}
-
-	if (atomic_read(&tfm->status) == DISKC_ST_FREE) {
-		pr_warn("%s: tfm is free\n", __func__);
-		return -EINVAL;
 	}
 
 	ret = cra->clear(base, req);
@@ -357,8 +324,8 @@ int diskcipher_do_crypt(struct crypto_diskcipher *tfm,
 	struct diskcipher_alg *cra = crypto_diskcipher_alg(base->__crt_alg);
 
 	if (!cra) {
-		pr_err("%s: doesn't exist cra. base:%p\n", __func__, base);
-		ret = -EINVAL;
+		pr_err("%s: doesn't exist cra", __func__);
+		ret = EINVAL;
 		goto out;
 	}
 
@@ -492,10 +459,7 @@ void crypto_free_diskcipher(struct crypto_diskcipher *tfm)
 {
 	crypto_diskcipher_debug(DISKC_API_FREE, 0);
 	atomic_set(&tfm->status, DISKC_ST_FREE);
-	if (tfm && virt_addr_valid(tfm))
-		crypto_destroy_tfm(tfm, crypto_diskcipher_tfm(tfm));
-	else
-		pr_warn("%s: invalid tfm:%p(valid:%d)\n", __func__, tfm, virt_addr_valid(tfm));
+	crypto_destroy_tfm(tfm, crypto_diskcipher_tfm(tfm));
 }
 
 int crypto_register_diskcipher(struct diskcipher_alg *alg)

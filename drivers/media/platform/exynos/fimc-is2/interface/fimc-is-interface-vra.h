@@ -17,7 +17,7 @@
 #include "fimc-is-config.h"
 #if defined(CONFIG_FIMC_IS_V4_0_0)
 #include "fimc-is-lib-vra_v1_1.h"
-#elif defined(CONFIG_FIMC_IS_V6_0_0) || defined(CONFIG_FIMC_IS_V6_10_0)
+#elif defined(CONFIG_FIMC_IS_V7_0_0) || defined(CONFIG_FIMC_IS_V6_0_0) || defined(CONFIG_FIMC_IS_V6_10_0)
 #include "fimc-is-lib-vra_v1_4.h"
 #else
 #include "fimc-is-lib-vra_v1_10.h"
@@ -85,7 +85,7 @@ struct fimc_is_lib_vra_os_system_funcs {
 	ulong (*spin_lock_irqsave)(void *slock_lib);
 	int  (*spin_unlock_irqrestore)(void *slock_lib, ulong flag);
 	void (*lib_assert)(void);
-	bool (*lib_in_interrupt)(void);
+	bool (*lib_in_irq)(void);
 };
 
 struct fimc_is_lib_vra_interface_funcs {
@@ -210,12 +210,12 @@ struct fimc_is_lib_vra {
 	void					*test_input_buffer;
 	bool					image_load;
 #endif
-#ifdef ENABLE_VRA_FDONE_WITH_CALLBACK
+#ifdef ENABLE_REPROCESSING_FD
 	struct fimc_is_hw_ip		*hw_ip;
 	unsigned long			done_vra_callback_out_ready;
 	unsigned long			done_vra_hw_intr;
-	spinlock_t			fdone_cb_lock;
-	ulong				fdone_cb_flag;
+	spinlock_t			reprocess_fd_lock;
+	ulong				reprocess_fd_flag;
 #endif
 #ifdef ENABLE_VRA_CHANGE_SETFILE_PARSING
 	ulong				tune_count;

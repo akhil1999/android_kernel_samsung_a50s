@@ -39,7 +39,6 @@
 #include "fimc-is-cis-5e9.h"
 #include "fimc-is-cis-5e9-setA.h"
 #include "fimc-is-cis-5e9-setB.h"
-#include "fimc-is-cis-5e9-setC.h"
 
 #include "fimc-is-helper-i2c.h"
 #include "fimc-is-vender-specific.h"
@@ -48,15 +47,16 @@
 
 static const struct v4l2_subdev_ops subdev_ops;
 
+#if defined(CONFIG_VENDER_MCD_V2)
+extern const struct fimc_is_vender_rom_addr *vender_rom_addr[SENSOR_POSITION_MAX];
+#endif
+
 static const u32 *sensor_5e9_global;
 static u32 sensor_5e9_global_size;
 static const u32 **sensor_5e9_setfiles;
 static const u32 *sensor_5e9_setfile_sizes;
 static const struct sensor_pll_info **sensor_5e9_pllinfos;
 static u32 sensor_5e9_max_setfile_num;
-
-static const u32 *sensor_5e9_setfile_throttling;
-static const struct sensor_pll_info *sensor_5e9_pllinfo_throttling;
 
 static void sensor_5e9_cis_data_calculation(const struct sensor_pll_info *pll_info, cis_shared_data *cis_data)
 {
@@ -76,7 +76,7 @@ static void sensor_5e9_cis_data_calculation(const struct sensor_pll_info *pll_in
 
 	/* 2. pixel rate calculation (Mpps) */
 	pll_voc_a = pll_info->ext_clk / pll_info->pre_pll_clk_div * pll_info->pll_multiplier;
-	vt_pix_clk_hz = pll_voc_a * 2 / (pll_info->vt_sys_clk_div * pll_info->vt_pix_clk_div);
+	vt_pix_clk_hz = pll_voc_a / (pll_info->vt_sys_clk_div * pll_info->vt_pix_clk_div);
 
 	dbg_sensor(1, "ext_clock(%d) / pre_pll_clk_div(%d) * pll_multiplier(%d) = pll_voc_a(%d)\n",
 						pll_info->ext_clk, pll_info->pre_pll_clk_div,
@@ -154,368 +154,11 @@ static int sensor_5e9_wait_stream_off_status(cis_shared_data *cis_data)
 	return ret;
 }
 
-int sensor_5e9_cis_check_rev(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	u8 rev = 0;
-	struct i2c_client *client;
-	struct fimc_is_cis *cis = NULL;
-
-	WARN_ON(!subdev);
-
-	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
-	WARN_ON(!cis);
-	WARN_ON(!cis->cis_data);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		return ret;
-	}
-
-	memset(cis->cis_data, 0, sizeof(cis_shared_data));
-	cis->rev_flag = false;
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-
-	ret = fimc_is_sensor_read8(client, 0x0002, &rev);
-	if (ret < 0) {
-		cis->rev_flag = true;
-		ret = -EAGAIN;
-	} else {
-		cis->cis_data->cis_rev = rev;
-		pr_info("%s : Rev. 0x%X\n", __func__, rev);
-	}
-
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	return ret;
-}
-
-int sensor_5e9_cis_otp_check_awb_ratio(char *unit, char *golden, char *limit)
-{
-	int ret = 0;
-
-	float r_g_min = (float)(limit[0]) / 1000;
-	float r_g_max = (float)(limit[1]) / 1000;
-	float b_g_min = (float)(limit[2]) / 1000;
-	float b_g_max = (float)(limit[3]) / 1000;
-
-	/* read by little endian */
-	float rg = (float) ((unit[1] << 8) | (unit[0])) / 16384;
-	float bg = (float) ((unit[3] << 8) | (unit[2])) / 16384;
-
-	float golden_rg = (float) ((golden[1] << 8) | (golden[0])) / 16384;
-	float golden_bg = (float) ((golden[3] << 8) | (golden[2])) / 16384;
-
-	if (rg < (golden_rg - r_g_min) || rg > (golden_rg + r_g_max)) {
-		err("%s(): Final RG calibration factors out of range! rg=0x%x golden_rg=0x%x",
-			__func__, (unit[1] << 8 | unit[0]), (golden[1] << 8 | golden[0]));
-		ret = 1;
-	}
-
-	if (bg < (golden_bg - b_g_min) || bg > (golden_bg + b_g_max)) {
-		err("%s(): Final BG calibration factors out of range! bg=0x%x, golden_bg=0x%x",
-			__func__, (unit[3] << 8 | unit[2]), (golden[3] << 8 | golden[2]));
-		ret = 1;
-	}
-
-	return ret;
-}
-
-int sensor_5e9_cis_otp_check_crc(struct v4l2_subdev *subdev,
-		struct fimc_is_device_sensor *device, int grp_offset)
-{
-	int ret = 0;
-	u16 crc_value = 0;
-	u16 crc16 = 0;
-	char *check_buf = (char *)&device->otp_cal_buf[0][0];
-	int group = (grp_offset == 0) ? 1 : 2;
-
-	/* ADDR CRC check */
-	crc_value = ((check_buf[grp_offset + OTP_GRP_ADDR_CHKSUM + 1] << 8)
-			| (check_buf[grp_offset + OTP_GRP_ADDR_CHKSUM]));
-	crc16 = sensor_cis_otp_get_crc16(&check_buf[grp_offset + OTP_GRP_ADDR_CRC_START],
-						OTP_GRP_ADDR_CRC_SIZE);
-	if (crc_value != crc16) {
-		sensor_cis_otp_data_set(&check_buf[grp_offset + OTP_GRP_ADDR_CRC_START], "addr",
-						OTP_GRP_ADDR_CRC_SIZE, 0xff);
-		err("GR%d: Error to ADDR CRC16 : 0x%x, cal buffer CRC: 0x%x", group, crc16, crc_value);
-		ret = -EINVAL;
-	} else
-		info("GR%d: ADDR CRC16 : 0x%x, cal buffer CRC: 0x%x\n", group, crc16, crc_value);
-
-	/* INFO CRC check */
-	crc_value = ((check_buf[grp_offset + OTP_GRP_INFO_CHKSUM + 1] << 8)
-			| (check_buf[grp_offset + OTP_GRP_INFO_CHKSUM]));
-	crc16 = sensor_cis_otp_get_crc16(&check_buf[grp_offset + OTP_GRP_INFO_CRC_START],
-						OTP_GRP_INFO_CRC_SIZE);
-	if (crc_value != crc16) {
-		sensor_cis_otp_data_set(&check_buf[grp_offset + OTP_GRP_INFO_CRC_START], "info",
-						OTP_GRP_INFO_CRC_SIZE, 0xff);
-		err("GR%d: Error to INFO CRC16 : 0x%x, cal buffer CRC: 0x%x", group, crc16, crc_value);
-		ret = -EINVAL;
-	} else
-		info("GR%d: INFO CRC16 : 0x%x, cal buffer CRC: 0x%x\n", group, crc16, crc_value);
-
-	/* AWB CRC check */
-	crc_value = ((check_buf[grp_offset + OTP_GRP_AWB_CHKSUM + 1] << 8)
-			| (check_buf[grp_offset + OTP_GRP_AWB_CHKSUM]));
-	crc16 = sensor_cis_otp_get_crc16(&check_buf[grp_offset + OTP_GRP_AWB_CRC_START],
-						OTP_GRP_AWB_CRC_SIZE);
-	if (crc_value != crc16) {
-		sensor_cis_otp_data_set(&check_buf[grp_offset + OTP_GRP_AWB_CRC_START], "awb",
-						OTP_GRP_AWB_CRC_SIZE, 0xff);
-		err("GR%d: Error to AWB CRC16 : 0x%x, cal buffer CRC: 0x%x", group, crc16, crc_value);
-		ret = -EINVAL;
-	} else
-		info("GR%d: AWB CRC16 : 0x%x, cal buffer CRC: 0x%x\n", group, crc16, crc_value);
-
-	/* LSC_XTC CRC check */
-	crc_value = ((check_buf[grp_offset + OTP_GRP_LSC_XTC_CHKSUM + 1] << 8)
-			| (check_buf[grp_offset + OTP_GRP_LSC_XTC_CHKSUM]));
-	crc16 = sensor_cis_otp_get_crc16(&check_buf[grp_offset + OTP_GRP_LSC_XTC_CRC_START],
-						OTP_GRP_LSC_XTC_CRC_SIZE);
-	if (crc_value != crc16) {
-		sensor_cis_otp_data_set(&check_buf[grp_offset + OTP_GRP_LSC_XTC_CRC_START], "lsc_xtc",
-						OTP_GRP_LSC_XTC_CRC_SIZE, 0xff);
-		err("GR%d: Error to LSC_XTC CRC16 : 0x%x, cal buffer CRC: 0x%x", group, crc16, crc_value);
-		ret = -EINVAL;
-	} else
-		info("GR%d: LSC_XTC CRC16 : 0x%x, cal buffer CRC: 0x%x\n", group, crc16, crc_value);
-
-	/* LSC_XTC CRC check */
-	crc_value = ((check_buf[grp_offset + OTP_GRP_AE_SYNC_CHKSUM + 1] << 8)
-			| (check_buf[grp_offset + OTP_GRP_AE_SYNC_CHKSUM]));
-	crc16 = sensor_cis_otp_get_crc16(&check_buf[grp_offset + OTP_GRP_AE_SYNC_CRC_START],
-						OTP_GRP_AE_SYNC_CRC_SIZE);
-	if (crc_value != crc16) {
-		sensor_cis_otp_data_set(&check_buf[grp_offset + OTP_GRP_AE_SYNC_CRC_START], "ae_sync",
-						OTP_GRP_AE_SYNC_CRC_SIZE, 0xff);
-		err("GR%d: Error to AE_SYNC CRC16 : 0x%x, cal buffer CRC: 0x%x", group, crc16, crc_value);
-		ret = -EINVAL;
-	} else
-		info("GR%d: AE_SYNC CRC16 : 0x%x, cal buffer CRC: 0x%x\n", group, crc16, crc_value);
-
-	return ret;
-}
-
-int sensor_5e9_cis_otp_read(struct v4l2_subdev *subdev, struct fimc_is_device_sensor *device,
-		u32 page_start, u32 page_end,
-		u32 page_base, u32 page_index_start, u32 page_index_end)
-{
-	int ret = 0;
-	struct fimc_is_cis *cis;
-	struct i2c_client *client;
-	u8 val, page;
-	int i;
-	int retry;
-
-	FIMC_BUG(!subdev);
-
-	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
-	if (!cis) {
-		err("cis is NULL");
-		return -EINVAL;
-	}
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		return -ENODEV;
-	}
-
-	info("OTP read start\n");
-	dbg_sensor(1, "%s, 1. sensor initial setting", __func__);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-
-	dbg_sensor(1, "%s, 2. sensor stream on", __func__);
-	fimc_is_sensor_write8(client, 0x0100, 0x01);
-
-	/* wait streamon */
-	CALL_CISOPS(cis, cis_wait_streamon, subdev);
-
-	dbg_sensor(1, "%s, 3. page select & read cal", __func__);
-	for (page = page_start; page <= page_end; page++) {
-		/* page select & read start */
-		fimc_is_sensor_write8(client, OTP_PAGE_SELECT, page);
-		fimc_is_sensor_write8(client, OTP_PAGE_CTRL, 0x01);
-		usleep_range(1000, 1001);
-
-		/* wait 0x0A01 == 1 [0]: read completed with no errors */
-		retry = 500;
-		while (retry > 0) {
-			fimc_is_sensor_read8(client, OTP_PAGE_ERRCHK, &val);
-			if (val == 1)
-				break;
-
-			usleep_range(100, 100);
-			retry--;
-		}
-
-		if (!retry)
-			err("%s: OTP page[%d] read fail with err(%d)\n",
-				__func__, page, val);
-
-		for (i = page_index_start; i < page_index_end; i++) {
-			fimc_is_sensor_read8(client, page_base + i, &device->otp_cal_buf[page][i]);
-			dbg_sensor(2, "cal: [%d][0x%x]: %x\n", page, OTP_PAGE_BASE + i, device->otp_cal_buf[page][i]);
-		}
-
-		/* make initial state */
-		fimc_is_sensor_write8(client, OTP_PAGE_CTRL, 0x04);
-		fimc_is_sensor_write8(client, OTP_PAGE_CTRL, 0x00);
-	}
-
-	fimc_is_sensor_write8(client, 0x0100, 0x00);
-	msleep(20);
-	info("OTP end!!!!!\n");
-
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
-	return ret;
-}
-
-int sensor_5e9_cis_otp_group_check(struct fimc_is_device_sensor *device)
-{
-	char *otp_buf = (char *)&device->otp_cal_buf[0][0];
-	int otp_group = 0;
-
-	if (otp_buf[OTP_GRP_FLAG + OTP_GRP2_OFFSET * OTP_PAGE_SIZE] == OTP_DATA_VALID)
-		otp_group = OTP_GROUP_TWO;
-	else if (otp_buf[OTP_GRP_FLAG] == OTP_DATA_VALID)
-		otp_group = OTP_GROUP_ONE;
-	else
-		err("All OTP data are invalid, check module");
-
-	return otp_group;
-
-}
-
-int sensor_5e9_cis_otp_offset_check(int otp_group)
-{
-	int offset = -1;
-
-	switch (otp_group) {
-		case OTP_GROUP_TWO:
-			offset = OTP_GRP2_OFFSET * OTP_PAGE_SIZE;
-			break;
-		case OTP_GROUP_ONE:
-			offset = 0;
-			break;
-		default:
-			break;
-	}
-
-	return offset;
-}
-
-int sensor_5e9_cis_otp(struct v4l2_subdev *subdev, struct fimc_is_device_sensor *device)
-{
-	int ret = 0;
-	int otp_group = 0x0;
-	int offset = 0;
-	char *otp_buf = (char *)&device->otp_cal_buf[0][0];
-	char file_str[60];
-	int recheck_flag = 0;
-
-	if (!device->otp_file_write) {
-		/* All OTP data read */
-		ret = sensor_5e9_cis_otp_read(subdev, device,
-				OTP_PAGE_START, OTP_PAGE_END,
-				OTP_PAGE_BASE, OTP_PAGE_START, OTP_PAGE_SIZE);
-		if (ret < 0) {
-			sensor_cis_otp_data_set(&otp_buf[0], "all", OTP_PAGE_SIZE * 64, 0xff);
-			err("Don't read to 5E9 OTP data");
-			goto p_err;
-		}
-
-		otp_group = sensor_5e9_cis_otp_group_check(device);
-		if (!otp_group) {
-			sensor_cis_otp_data_set(&otp_buf[0], "all", OTP_PAGE_SIZE * 64, 0xff);
-			ret = -EINVAL;
-			goto p_err;
-		}
-
-		offset = sensor_5e9_cis_otp_offset_check(otp_group);
-		ret = sensor_5e9_cis_otp_check_crc(subdev, device, offset);
-		if (ret < 0)
-			err("OTP data CRC check fail, check module");
-
-		snprintf(file_str, sizeof(file_str), "%s%s", OTP_DATA_PATH, device->otp_filename);
-		/* Write to OTP data at file */
-		ret = sensor_cis_otp_write_file(file_str, (void *)device->otp_cal_buf, OTP_PAGE_SIZE * 64);
-		if (ret < 0)
-			err("5E9 OTP data don't file write");
-		else {
-			info("success to write 5E9 OTP file\n");
-			device->otp_file_write = 1;
-		}
-		goto p_err;
-	}
-
-	otp_group = sensor_5e9_cis_otp_group_check(device);
-	if (!otp_group) {
-reloading:
-		err("reload OTP data\n");
-		recheck_flag++;
-		ret = sensor_5e9_cis_otp_read(subdev, device,
-				OTP_PAGE_START, OTP_PAGE_END,
-				OTP_PAGE_BASE, OTP_PAGE_START, OTP_PAGE_SIZE);
-		if (ret < 0) {
-			sensor_cis_otp_data_set(&otp_buf[0], "all", OTP_PAGE_SIZE * 64, 0xff);
-			err("Don't read to 5E9 OTP data");
-			goto p_err;
-		}
-
-		otp_group = sensor_5e9_cis_otp_group_check(device);
-		if (!otp_group) {
-			sensor_cis_otp_data_set(&otp_buf[0], "all", OTP_PAGE_SIZE * 64, 0xff);
-			ret = -EINVAL;
-			goto p_err;
-		}
-	}
-	offset = sensor_5e9_cis_otp_offset_check(otp_group);
-
-	/* OTP CRC check */
-	ret = sensor_5e9_cis_otp_check_crc(subdev, device, offset);
-	if (ret < 0) {
-		err("OTP data CRC check fail, check module");
-		err("try to reload OTP data\n");
-		/* All OTP data read */
-		if (!recheck_flag)
-			goto reloading;
-
-		device->cal_status[CAMERA_CRC_INDEX_AWB] = CRC_ERROR;
-		goto p_err;
-	} else {
-		u8 *awb_base = &otp_buf[offset + OTP_GRP_AWB_CHKSUM];
-
-		info("OTP data CRC check success\n");
-		device->cal_status[CAMERA_CRC_INDEX_AWB] = CRC_NO_ERROR;
-		ret = sensor_5e9_cis_otp_check_awb_ratio(&awb_base[CURRENT_RG_RATIO_OFFSET],
-				&awb_base[MASTER_RG_RATIO_OFFSET],
-				&awb_base[RG_MIN_LIMIT_OFFSET]);
-		if (ret) {
-			err("%s(): 5E9 OTP AWB Group%d ratio out of limit(%d)", __func__, otp_group, ret);
-			device->cal_status[CAMERA_CRC_INDEX_AWB] = LIMIT_FAILURE;
-			ret = -1;
-		}
-	}
-
-p_err:
-	return ret;
-}
-
 /* CIS OPS */
 int sensor_5e9_cis_init(struct v4l2_subdev *subdev)
 {
 	int ret = 0;
 	struct fimc_is_cis *cis;
-	struct fimc_is_module_enum *module;
-	struct fimc_is_device_sensor *device = NULL;
 	u32 setfile_index = 0;
 	cis_setting_info setinfo;
 
@@ -531,15 +174,6 @@ int sensor_5e9_cis_init(struct v4l2_subdev *subdev)
 	setinfo.return_value = 0;
 
 	FIMC_BUG(!subdev);
-
-	module = (struct fimc_is_module_enum *)v4l2_get_subdev_hostdata(subdev);
-
-	device = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(module->subdev);
-	if (!device) {
-		err("device sensor is NULL");
-		ret = -ENODEV;
-		goto p_err;
-	}
 
 	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
 	if (!cis) {
@@ -558,6 +192,15 @@ int sensor_5e9_cis_init(struct v4l2_subdev *subdev)
 #endif
 
 	BUG_ON(!cis->cis_data);
+	memset(cis->cis_data, 0, sizeof(cis_shared_data));
+	cis->rev_flag = false;
+
+	ret = sensor_cis_check_rev(cis);
+	if (ret < 0) {
+		warn("sensor_5e9_check_rev is fail when cis init");
+		cis->rev_flag = true;
+		ret = 0;
+	}
 
 	cis->cis_data->cur_width = SENSOR_5E9_MAX_WIDTH;
 	cis->cis_data->cur_height = SENSOR_5E9_MAX_HEIGHT;
@@ -694,14 +337,6 @@ int sensor_5e9_cis_init(struct v4l2_subdev *subdev)
 	do_gettimeofday(&end);
 	dbg_sensor(1, "[%s] time %lu us\n", __func__, (end.tv_sec - st.tv_sec)*1000000 + (end.tv_usec - st.tv_usec));
 #endif
-
-	if (device->use_otp_cal) {
-		ret = sensor_5e9_cis_otp(subdev, device);
-		if (ret < 0) {
-			err("5E9 OTP data have problem, check module");
-			ret = 0;
-		}
-	}
 
 p_err:
 	return ret;
@@ -865,6 +500,16 @@ int sensor_5e9_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 		goto p_err;
 	}
 
+	/* If check_rev fail when cis_init, one more check_rev in mode_change */
+	if (cis->rev_flag == true) {
+		cis->rev_flag = false;
+		ret = sensor_cis_check_rev(cis);
+		if (ret < 0) {
+			err("sensor_5e9_check_rev is fail");
+			goto p_err;
+		}
+	}
+
 	sensor_5e9_cis_data_calculation(sensor_5e9_pllinfos[mode], cis->cis_data);
 
 	ret = sensor_cis_set_registers(subdev, sensor_5e9_setfiles[mode], sensor_5e9_setfile_sizes[mode]);
@@ -881,42 +526,6 @@ int sensor_5e9_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 	dbg_sensor(1, "[%s] mode changed(%d)\n", __func__, mode);
 
 p_err:
-	return ret;
-}
-
-
-int sensor_5e9_cis_mode_change_throttling(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct fimc_is_cis *cis = NULL;
-
-	FIMC_BUG(!subdev);
-
-	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
-	FIMC_BUG(!cis);
-	FIMC_BUG(!cis->cis_data);
-
-	sensor_5e9_cis_data_calculation(sensor_5e9_pllinfo_throttling, cis->cis_data);
-
-	I2C_MUTEX_LOCK(cis->i2c_lock);
-
-	ret = sensor_cis_set_registers(subdev, sensor_5e9_setfile_throttling,
-				sizeof(sensor_5e9_setfile_throttling) / sizeof(sensor_5e9_setfile_throttling[0]));
-	if (ret < 0) {
-		err("sensor_gm1sp_set_registers fail!!");
-		goto p_err;
-	}
-
-	cis->cis_data->frame_time = (cis->cis_data->line_readOut_time * cis->cis_data->cur_height / 1000);
-	cis->cis_data->rolling_shutter_skew = (cis->cis_data->cur_height - 1) * cis->cis_data->line_readOut_time;
-	dbg_sensor(1, "[%s] frame_time(%d), rolling_shutter_skew(%lld)\n", __func__,
-		cis->cis_data->frame_time, cis->cis_data->rolling_shutter_skew);
-
-	dbg_sensor(1, "[%s] throttling mode changed\n", __func__);
-
-p_err:
-	I2C_MUTEX_UNLOCK(cis->i2c_lock);
-
 	return ret;
 }
 
@@ -1485,9 +1094,10 @@ int sensor_5e9_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 	struct i2c_client *client;
 	cis_shared_data *cis_data;
 
+	u32 vt_pic_clk_freq_mhz = 0;
 	u32 line_length_pck = 0;
 	u16 frame_length_lines = 0;
-	u64 numerator;
+
 #ifdef DEBUG_SENSOR_TIME
 	struct timeval st, end;
 
@@ -1515,13 +1125,14 @@ int sensor_5e9_cis_set_frame_duration(struct v4l2_subdev *subdev, u32 frame_dura
 		frame_duration = cis_data->min_frame_us_time;
 	}
 
+	vt_pic_clk_freq_mhz = cis_data->pclk / (1000 * 1000);
 	line_length_pck = cis_data->line_length_pck;
-	numerator = (u64)cis_data->pclk * frame_duration;
-	frame_length_lines = (u16)((numerator / line_length_pck) / (1000 * 1000));
 
-	dbg_sensor(1, "[MOD:D:%d] %s, vt_pic_clk(%#x) frame_duration = %d us,"
+	frame_length_lines = (u16)((vt_pic_clk_freq_mhz * frame_duration) / line_length_pck);
+
+	dbg_sensor(1, "[MOD:D:%d] %s, vt_pic_clk_freq_mhz(%#x) frame_duration = %d us,"
 		KERN_CONT "(line_length_pck%#x), frame_length_lines(%#x)\n",
-		cis->id, __func__, cis_data->pclk, frame_duration, line_length_pck, frame_length_lines);
+		cis->id, __func__, vt_pic_clk_freq_mhz, frame_duration, line_length_pck, frame_length_lines);
 
 	hold = sensor_5e9_cis_group_param_hold_func(subdev, 0x01);
 	if (hold < 0) {
@@ -2153,103 +1764,6 @@ p_err:
 	return ret;
 }
 
-static int sensor_5e9_cis_set_dual_master_setting(struct fimc_is_cis *cis)
-{
-	int ret = 0;
-	struct i2c_client *client;
-
-	FIMC_BUG(!cis);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-	       err("client is NULL");
-	       ret = -EINVAL;
-	       goto p_err;
-	}
-
-	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
-
-	/* Vsync out */
-	ret = fimc_is_sensor_write8(client, 0x3C03, 0x0F);
-	if (unlikely(ret))
-	       err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x3C03, 0x0F, ret);
-
-p_err:
-	return ret;
-}
-
-static int sensor_5e9_cis_set_dual_slave_setting(struct fimc_is_cis *cis)
-{
-	int ret = 0;
-	struct i2c_client *client;
-
-	FIMC_BUG(!cis);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
-
-	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
-
-	/* Vsync Input Source Select */
-	ret = fimc_is_sensor_write8(client, 0x3C02, 0x01);
-	if (unlikely(ret))
-		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x3C02, 0x01, ret);
-	/* gpio1 Input Option */
-	ret = fimc_is_sensor_write8(client, 0x3C05, 0x1D);
-	if (unlikely(ret))
-		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x3C02, 0x1D, ret);
-	/* Dual Sync Slave enable */
-	ret = fimc_is_sensor_write8(client, 0x3500, 0x03);
-	if (unlikely(ret))
-		err("i2c treansfer fail addr(%x), val(%x), ret(%d)\n", 0x3500, 0x03, ret);
-
-p_err:
-	return ret;
-}
-
-int sensor_5e9_cis_set_dual_setting(struct v4l2_subdev *subdev)
-{
-	int ret = 0;
-	struct fimc_is_cis *cis;
-	struct i2c_client *client;
-
-	FIMC_BUG(!subdev);
-
-	cis = (struct fimc_is_cis *)v4l2_get_subdevdata(subdev);
-
-	FIMC_BUG(!cis);
-
-	client = cis->client;
-	if (unlikely(!client)) {
-		err("client is NULL");
-		ret = -EINVAL;
-		goto p_err;
-	}
-
-	switch (cis->dual_sync_mode) {
-	case DUAL_SYNC_MASTER:
-		ret = sensor_5e9_cis_set_dual_master_setting(cis);
-		if (ret)
-			err("5e9 dual master setting fail");
-		break;
-	case DUAL_SYNC_SLAVE:
-		ret = sensor_5e9_cis_set_dual_slave_setting(cis);
-		if (ret)
-			err("5e9 dual slave setting fail");
-		break;
-	default:
-		err("invalid cis->dual_sync_mode(%d)\n", cis->dual_sync_mode);
-		ret = -EINVAL;
-	}
-
-p_err:
-	return ret;
-}
-
 static struct fimc_is_cis_ops cis_ops = {
 	.cis_init = sensor_5e9_cis_init,
 	.cis_log_status = sensor_5e9_cis_log_status,
@@ -2277,29 +1791,25 @@ static struct fimc_is_cis_ops cis_ops = {
 	.cis_compensate_gain_for_extremely_br = sensor_cis_compensate_gain_for_extremely_br,
 	.cis_wait_streamoff = sensor_cis_wait_streamoff,
 	.cis_wait_streamon = sensor_cis_wait_streamon,
-	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
-	.cis_check_rev = sensor_5e9_cis_check_rev,
-	.cis_factory_test = sensor_cis_factory_test,
-	.cis_set_dual_setting = sensor_5e9_cis_set_dual_setting,
-	.cis_mode_change_throttling = sensor_5e9_cis_mode_change_throttling,
 };
 
-static int cis_5e9_probe(struct i2c_client *client,
+static int __init cis_5e9_probe(struct i2c_client *client,
 	const struct i2c_device_id *id)
 {
 	int ret = 0;
-	int i;
 	struct fimc_is_core *core = NULL;
 	struct v4l2_subdev *subdev_cis = NULL;
 	struct fimc_is_cis *cis = NULL;
 	struct fimc_is_device_sensor *device = NULL;
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
-	u32 sensor_id = 0;
-	char const *setfile;
 	struct device *dev;
 	struct device_node *dnode;
-#if defined(CONFIG_USE_DIRECT_IS_CONTROL) && defined(CONFIG_CAMERA_OTPROM_SUPPORT_FRONT)
+	u32 sensor_id = 0;
+	char const *setfile;
+
+#if defined(CONFIG_VENDER_MCD) || defined(CONFIG_VENDER_MCD_V2)
 	struct fimc_is_vender_specific *specific = NULL;
+	u32 rom_position = 0;
 #endif
 
 	FIMC_BUG(!client);
@@ -2349,11 +1859,39 @@ static int cis_5e9_probe(struct i2c_client *client,
 	cis->device = 0;
 	cis->client = client;
 	sensor_peri->module->client = cis->client;
-	cis->ctrl_delay = N_PLUS_ONE_FRAME;
-#if defined(CONFIG_USE_DIRECT_IS_CONTROL) && defined(CONFIG_CAMERA_OTPROM_SUPPORT_FRONT)
+
+#if defined(CONFIG_VENDER_MCD_V2)	
+	if (of_property_read_bool(dnode, "use_sensor_otp")) {		
+		ret = of_property_read_u32(dnode, "rom_position", &rom_position);
+		if (ret) {
+			err("sensor_id read is fail(%d)", ret);
+		} else {
+			specific = core->vender.private_data;
+			specific->rom_client[rom_position] = cis->client;
+			specific->rom_data[rom_position].rom_type = ROM_TYPE_OTPROM;
+			specific->rom_data[rom_position].rom_valid = true;
+
+			if (vender_rom_addr[rom_position]) {
+				specific->rom_cal_map_addr[rom_position] = vender_rom_addr[rom_position];
+				probe_info("%s: rom_id=%d, OTP Registered\n", __func__, rom_position);
+			} else {
+				probe_info("%s: S5K5E9 OTP addrress not defined!\n", __func__);
+			}
+		}
+	}
+#else
+#if defined(CONFIG_VENDER_MCD) && defined(CONFIG_CAMERA_OTPROM_SUPPORT_FRONT)
+	rom_position = 0;
 	specific = core->vender.private_data;
 	specific->front_cis_client = client;
 #endif
+#if defined(CONFIG_VENDER_MCD) && defined(CONFIG_CAMERA_OTPROM_SUPPORT_REAR)
+	rom_position = 0;
+	specific = core->vender.private_data;
+	specific->rear_cis_client = client;
+#endif	
+#endif	
+	cis->ctrl_delay = N_PLUS_ONE_FRAME;
 
 	cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
 	if (!cis->cis_data) {
@@ -2361,6 +1899,7 @@ static int cis_5e9_probe(struct i2c_client *client,
 		ret = -ENOMEM;
 		goto p_err;
 	}
+	
 	cis->cis_ops = &cis_ops;
 
 	/* belows are depend on sensor cis. MUST check sensor spec */
@@ -2373,18 +1912,7 @@ static int cis_5e9_probe(struct i2c_client *client,
 	} else {
 		cis->aperture_num = F2_2;
 	}
-
 	probe_info("%s f-number %d\n", __func__, cis->aperture_num);
-
-	if (of_property_read_bool(dnode, "dual_sync_mode")) {
-		ret = of_property_read_u32(dnode, "dual_sync_mode", &cis->dual_sync_mode);
-		if (ret)
-			warn("dual_sync_mode read is fail(%d)", ret);
-	} else {
-		cis->dual_sync_mode = DUAL_SYNC_NONE;
-	}
-
-	probe_info("%s dual_sync_mode %d\n", __func__, cis->dual_sync_mode);
 
 	cis->use_dgain = true;
 	cis->hdr_ctrl_by_again = false;
@@ -2395,8 +1923,7 @@ static int cis_5e9_probe(struct i2c_client *client,
 		setfile = "default";
 	}
 
-	if (strcmp(setfile, "default") == 0 ||
-			strcmp(setfile, "setA") == 0) {
+	if (strcmp(setfile, "default") == 0 || strcmp(setfile, "setA") == 0) {
 		probe_info("%s setfile_A\n", __func__);
 		sensor_5e9_global = sensor_5e9_setfile_A_Global;
 		sensor_5e9_global_size = ARRAY_SIZE(sensor_5e9_setfile_A_Global);
@@ -2412,18 +1939,6 @@ static int cis_5e9_probe(struct i2c_client *client,
 		sensor_5e9_setfile_sizes = sensor_5e9_setfile_B_sizes;
 		sensor_5e9_pllinfos = sensor_5e9_pllinfos_B;
 		sensor_5e9_max_setfile_num = ARRAY_SIZE(sensor_5e9_setfiles_B);
-	} else if (strcmp(setfile, "setC") == 0) {
-		probe_info("%s setfile_C\n", __func__);
-		sensor_5e9_global = sensor_5e9_setfile_C_Global;
-		sensor_5e9_global_size = ARRAY_SIZE(sensor_5e9_setfile_C_Global);
-		sensor_5e9_setfiles = sensor_5e9_setfiles_C;
-		sensor_5e9_setfile_sizes = sensor_5e9_setfile_C_sizes;
-		sensor_5e9_pllinfos = sensor_5e9_pllinfos_C;
-		sensor_5e9_max_setfile_num = ARRAY_SIZE(sensor_5e9_setfiles_C);
-
-		/* throttling setting */
-		sensor_5e9_setfile_throttling = sensor_5e9_setfile_C_2592x1944_15fps;
-		sensor_5e9_pllinfo_throttling = &sensor_5e9_pllinfo_C_2592x1944_15fps;
 	} else {
 		err("%s setfile index out of bound, take default (setfile_A)", __func__);
 		sensor_5e9_global = sensor_5e9_setfile_A_Global;
@@ -2433,24 +1948,6 @@ static int cis_5e9_probe(struct i2c_client *client,
 		sensor_5e9_pllinfos = sensor_5e9_pllinfos_A;
 		sensor_5e9_max_setfile_num = ARRAY_SIZE(sensor_5e9_setfiles_A);
 	}
-
-	cis->use_initial_ae = of_property_read_bool(dnode, "use_initial_ae");
-	probe_info("%s use initial_ae(%d)\n", __func__, cis->use_initial_ae);
-
-	device->use_otp_cal = of_property_read_bool(dnode, "use_otp_cal");
-	probe_info("%s use otp_cal(%d)\n", __func__, device->use_otp_cal);
-	if (device->use_otp_cal) {
-		ret = of_property_read_string(dnode, "otp_filename", &device->otp_filename);
-		if (ret) {
-			err("OTP filename read fail(%d), take default name", ret);
-			device->otp_filename = "5e9_otp_cal_data.bin";
-		}
-		probe_info("%s otp_filename(%s)\n", __func__, device->otp_filename);
-	}
-	device->otp_file_write = 0;
-
-	for (i = 0; i < CAMERA_CRC_INDEX_MAX; i++)
-		device->cal_status[i] = CRC_NO_ERROR;
 
 	v4l2_i2c_subdev_init(subdev_cis, client, &subdev_ops);
 	v4l2_set_subdevdata(subdev_cis, cis);

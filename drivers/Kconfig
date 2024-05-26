@@ -216,10 +216,24 @@ source "drivers/bts/Kconfig"
 
 source "drivers/gud/Kconfig"
 
-source "drivers/ccic/Kconfig"
+source "drivers/battery_v2/Kconfig"
+
+source "drivers/switch/Kconfig"
+
+source "drivers/fingerprint/Kconfig"
+
+source "drivers/motor/Kconfig"
 
 source "drivers/vision/Kconfig"
 
-source "drivers/sensors/Kconfig"
+source "drivers/sensorhub/Kconfig"
+
+source "drivers/security/samsung/five_tee_driver/Kconfig"
+
+source "drivers/icdrv/Kconfig"
+
+source "drivers/samsung/Kconfig"
+
+source "drivers/security/samsung/tzic/Kconfig"
 
 endmenu

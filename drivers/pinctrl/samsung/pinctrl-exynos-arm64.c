@@ -428,7 +428,7 @@ const struct samsung_pinctrl_of_match_data exynos7_of_data __initconst = {
 
 /* pin banks of exynos9610 pin-controller 0 (ALIVE) */
 static struct samsung_pin_bank_data exynos9610_pin_banks0[] = {
-	EXYNOS8_PIN_BANK_EINTN(bank_type_7, 6, 0x000, "etc1"),
+	EXYNOS8_PIN_BANK_EINTN(bank_type_7, 6, 0x000, "etc0"),
 	EXYNOS9_PIN_BANK_EINTW(bank_type_7, 8, 0x020, "gpa0", 0x00, 0x00),
 	EXYNOS9_PIN_BANK_EINTW(bank_type_7, 8, 0x040, "gpa1", 0x04, 0x08),
 	EXYNOS9_PIN_BANK_EINTW(bank_type_7, 8, 0x060, "gpa2", 0x08, 0x10),

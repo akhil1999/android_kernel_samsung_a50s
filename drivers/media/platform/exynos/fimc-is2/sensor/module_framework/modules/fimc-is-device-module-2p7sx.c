@@ -95,14 +95,10 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_module_2p7sx_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
 	int gpio_vdd28_drv_en = 0, gpio_avdd28_en = 0;
-
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 

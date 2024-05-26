@@ -24,17 +24,8 @@
 
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
 struct host_data xhci_data;
+struct exynos_usb_audio *usb_audio;
 #endif
-
-struct usb_xhci_pre_alloc {
-	u8 *pre_dma_alloc;
-	u64 offset;
-
-	dma_addr_t	dma;
-};
-
-struct usb_xhci_pre_alloc xhci_pre_alloc;
-void __iomem *phycon_base_addr;
 
 static int dwc3_host_get_irq(struct dwc3 *dwc)
 {
@@ -126,14 +117,6 @@ int dwc3_host_init(struct dwc3 *dwc)
 	if (dwc->usb3_lpm_capable)
 		props[prop_idx++].name = "usb3-lpm-capable";
 
-	/* pre dma_alloc */
-	xhci_pre_alloc.pre_dma_alloc = dma_alloc_coherent(dwc->dev, SZ_2M,
-					&xhci_pre_alloc.dma, GFP_KERNEL);
-	if (!xhci_pre_alloc.pre_dma_alloc) {
-		dev_err(dwc->dev, "%s: dma_alloc fail!!!!\n", __func__);
-		goto err1;
-	}
-
 	/**
 	 * WORKAROUND: dwc3 revisions <=3.00a have a limitation
 	 * where Port Disable command doesn't work.
@@ -160,11 +143,22 @@ int dwc3_host_init(struct dwc3 *dwc)
 			  dev_name(dwc->dev));
 
 #ifdef CONFIG_SND_EXYNOS_USB_AUDIO
+	usb_audio = kmalloc(sizeof(struct exynos_usb_audio), GFP_KERNEL);
+	dev_info(dwc->dev, "%s : usb_audio alloc done\n", __func__);
+
+	/* In data buf alloc */
 	xhci_data.in_data_addr = dma_alloc_coherent(dwc->dev, (PAGE_SIZE * 256), &dma,
 			GFP_KERNEL);
 	xhci_data.in_data_dma = dma;
-	dev_info(dwc->dev, "// Data address = 0x%llx (DMA), %p (virt)",
+	dev_info(dwc->dev, "// IN Data address = 0x%llx (DMA), %p (virt)",
 		(unsigned long long)xhci_data.in_data_dma, xhci_data.in_data_addr);
+
+	/* Out data buf alloc */
+	xhci_data.out_data_addr = dma_alloc_coherent(dwc->dev, (PAGE_SIZE * 256), &dma,
+			GFP_KERNEL);
+	xhci_data.out_data_dma = dma;
+	dev_info(dwc->dev, "// OUT Data address = 0x%llx (DMA), %p (virt)",
+		(unsigned long long)xhci_data.out_data_dma, xhci_data.out_data_addr);
 #endif
 	if (!dwc->dotg) {
 		ret = platform_device_add(xhci);

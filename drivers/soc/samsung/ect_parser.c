@@ -791,6 +791,8 @@ static int ect_parse_minlock_domain(int parser_version, void *address, struct ec
 	return 0;
 }
 
+uint64_t ect_minlock_domain_0;	/* used for sec debug auto analysis */ 	
+
 static int ect_parse_minlock_header(void *address, struct ect_info *info)
 {
 	int ret = 0;
@@ -844,6 +846,7 @@ static int ect_parse_minlock_header(void *address, struct ect_info *info)
 	}
 
 	info->block_handle = ect_minlock_header;
+	ect_minlock_domain_0 = (uint64_t)ect_minlock_header->domain_list;
 
 	return 0;
 

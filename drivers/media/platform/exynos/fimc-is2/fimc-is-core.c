@@ -32,7 +32,7 @@
 #include <linux/bug.h>
 #include <linux/v4l2-mediabus.h>
 #include <linux/gpio.h>
-#
+
 #ifdef CONFIG_OF
 #include <linux/of.h>
 #include <linux/of_gpio.h>
@@ -738,7 +738,7 @@ static ssize_t store_pattern_en(struct device *dev,
 			sysfs_debug.pattern_en = cmd;
 		break;
 	default:
-		pr_warn("%s: invalid paramter (%lu)\n", __func__, cmd);
+		pr_warn("%s: invalid paramter (%d)\n", __func__, cmd);
 		break;
 	}
 
@@ -1680,6 +1680,7 @@ static int __init fimc_is_probe(struct platform_device *pdev)
 
 	core->shutdown = false;
 	core->reboot = false;
+	mutex_init(&core->mutex_reboot);
 
 	probe_info("%s:end\n", __func__);
 	return 0;
@@ -1698,32 +1699,30 @@ p_err1:
 void fimc_is_cleanup(struct fimc_is_core *core)
 {
 	struct fimc_is_device_sensor *device;
-	int ret = 0;
+	int ret;
 	u32 i;
 
-	if (!core) {
-		err("%s: core(NULL)", __func__);
-		return;
-	}
+	info("%s enter: shutdown(%d)\n", __func__, core->shutdown);
 
+	mutex_lock(&core->mutex_reboot);
 	core->reboot = true;
-	info("%s++: shutdown(%d), reboot(%d)\n", __func__, core->shutdown, core->reboot);
+	info("reboot state changed to (%d)\n", core->reboot);
+
 	for (i = 0; i < FIMC_IS_SENSOR_COUNT; i++) {
 		device = &core->sensor[i];
-		if (!device) {
-			err("%s: device(NULL)", __func__);
-			continue;
-		}
 
-		if (test_bit(FIMC_IS_SENSOR_FRONT_START, &device->state)) {
-			minfo("call sensor_front_stop()\n", device);
+		if (device &&
+		    test_bit(FIMC_IS_SENSOR_FRONT_START, &device->state)) {
+			minfo("try to stop sensor\n", device);
 
 			ret = fimc_is_sensor_front_stop(device);
 			if (ret)
-				mwarn("fimc_is_sensor_front_stop() is fail(%d)", device, ret);
+				mwarn("failed to stop sensor: %d", device, ret);
 		}
 	}
-	info("%s:--\n", __func__);
+	mutex_unlock(&core->mutex_reboot);
+
+	info("%s exit\n", __func__);
 }
 
 static void fimc_is_shutdown(struct platform_device *pdev)

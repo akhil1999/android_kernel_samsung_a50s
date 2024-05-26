@@ -1,5 +1,5 @@
 fimc-is-module-objs := fimc-is-module-6b2.o \
-		fimc-is-device-8b1.o \
+		fimc-is-module-8b1.o \
 		fimc-is-module-6d1.o \
 		fimc-is-module-5e3.o \
 		fimc-is-module-imx135.o \
@@ -21,6 +21,7 @@ fimc-is-module-objs := fimc-is-module-6b2.o \
 		fimc-is-module-imx219.o \
 		fimc-is-module-imx260.o \
 		fimc-is-module-4h5.o \
+		fimc-is-module-4e6-c2.o \
 		fimc-is-module-4e6.o \
 		fimc-is-module-3m2.o \
 		fimc-is-module-5e2.o \
@@ -33,7 +34,7 @@ fimc-is-module-objs := fimc-is-module-6b2.o \
 obj-$(CONFIG_MODULE_ALL_INCLUDE) += fimc-is-module.o
 
 obj-$(CONFIG_CAMERA_SENSOR_6B2_OBJ) += fimc-is-module-6b2.o
-obj-$(CONFIG_CAMERA_SENSOR_8B1_OBJ) += fimc-is-device-8b1.o
+obj-$(CONFIG_CAMERA_SENSOR_8B1_OBJ) += fimc-is-module-8b1.o
 obj-$(CONFIG_CAMERA_SENSOR_6D1_OBJ) += fimc-is-module-6d1.o
 obj-$(CONFIG_CAMERA_SENSOR_5E3_OBJ) += fimc-is-module-5e3.o
 obj-$(CONFIG_CAMERA_SENSOR_IMX134_OBJ) += fimc-is-module-imx134.o
@@ -56,6 +57,7 @@ obj-$(CONFIG_CAMERA_SENSOR_IMX219_OBJ) += fimc-is-module-imx219.o
 obj-$(CONFIG_CAMERA_SENSOR_IMX260_OBJ) += fimc-is-module-imx260.o
 obj-$(CONFIG_CAMERA_SENSOR_4H5_OBJ) += fimc-is-module-4h5.o
 obj-$(CONFIG_CAMERA_SENSOR_4E6_OBJ) += fimc-is-module-4e6.o
+obj-$(CONFIG_CAMERA_SENSOR_4E6_C2_OBJ) += fimc-is-module-4e6-c2.o
 obj-$(CONFIG_CAMERA_SENSOR_3M2_OBJ) += fimc-is-module-3m2.o
 obj-$(CONFIG_CAMERA_SENSOR_5E2_OBJ) += fimc-is-module-5e2.o
 obj-$(CONFIG_CAMERA_SENSOR_VIRTUAL_ZEBU_OBJ) += fimc-is-module-virtual-zebu.o

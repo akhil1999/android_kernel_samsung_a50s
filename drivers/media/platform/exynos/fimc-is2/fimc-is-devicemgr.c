@@ -60,7 +60,7 @@ static void tasklet_sensor_tag(unsigned long data)
 {
 	int ret = 0;
 	u32 stream;
-	unsigned long flags;
+	unsigned long flags, framemgr_flag;
 	struct fimc_is_framemgr *framemgr;
 	struct v4l2_subdev *subdev;
 	struct camera2_node ldr_node = {0, };
@@ -94,7 +94,7 @@ static void tasklet_sensor_tag(unsigned long data)
 		return;
 	}
 
-	framemgr_e_barrier(framemgr, 0);
+	framemgr_e_barrier_irqs(framemgr, 0, framemgr_flag);
 	frame = find_frame(framemgr, FS_PROCESS, frame_fcount, (void *)(ulong)tag_data->fcount);
 
 	if (!frame) {
@@ -102,10 +102,10 @@ static void tasklet_sensor_tag(unsigned long data)
 		merr("[F%d] There's no frame in processing." \
 			"Can't sync sensor and ischain buffer anymore..",
 			group, tag_data->fcount);
-		framemgr_x_barrier(framemgr, 0);
+		framemgr_x_barrier_irqr(framemgr, 0, framemgr_flag);
 		return;
 	}
-	framemgr_x_barrier(framemgr, 0);
+	framemgr_x_barrier_irqr(framemgr, 0, framemgr_flag);
 
 	ldr_node = frame->shot_ext->node_group.leader;
 

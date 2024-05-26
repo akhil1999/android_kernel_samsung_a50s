@@ -21,6 +21,9 @@
 #define PAFSTAT_STATIC_MAXHEIGHT	15
 #define PAFSTAT_STATIC_ELEMENT_SIZE	448
 
+#define PAFSTAT_PIXEL_MODE_DUAL		(0)
+#define PAFSTAT_PIXEL_MODE_QUAD		(1)
+
 enum pafstat_rdma_format {
 	/*
 	 * RDAM data format.

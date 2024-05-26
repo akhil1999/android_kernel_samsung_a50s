@@ -47,6 +47,10 @@ int sensor_ak7372_aperture_init(struct v4l2_subdev *subdev, u32 val)
 	u8 data[2] = {0, };
 	struct fimc_is_aperture *aperture;
 	struct i2c_client *client = NULL;
+#ifdef USE_CAMERA_HW_BIG_DATA
+	struct cam_hw_param *hw_param = NULL;
+	struct fimc_is_device_sensor *device = NULL;
+#endif
 
 	WARN_ON(!subdev);
 
@@ -77,8 +81,16 @@ int sensor_ak7372_aperture_init(struct v4l2_subdev *subdev, u32 val)
 	ret |= fimc_is_sensor_addr8_write8(client, 0x01, data[1]);
 	ret |= fimc_is_sensor_addr8_write8(client, 0x02, 0x00); /* active mode */
 
-	if (ret < 0)
+	if (ret < 0) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+		device = v4l2_get_subdev_hostdata(subdev);
+		if (device)
+			fimc_is_sec_get_hw_param(&hw_param, device->position);
+		if (hw_param)
+			hw_param->i2c_aperture_err_cnt++;
+#endif
 		goto p_err;
+	}
 
 p_err:
 	I2C_MUTEX_UNLOCK(aperture->i2c_lock);
@@ -107,6 +119,15 @@ int sensor_ak7372_aperture_set_start_value_step1(struct v4l2_subdev *subdev, int
 		ret = -EINVAL;
 		goto exit;
 	}
+
+#ifdef USE_OIS_SHIFT_FOR_APERTURE
+	if (aperture->sensor_peri->subdev_ois) {
+		ret = CALL_OISOPS(aperture->sensor_peri->ois, ois_center_shift, aperture->sensor_peri->subdev_ois);
+		if (ret < 0)
+			err("v4l2_subdev_call(ois_center_shift) is fail(%d)", ret);
+	}
+	usleep_range(15000, 16000);
+#endif
 
 	switch (value) {
 	case F1_5:

@@ -256,6 +256,11 @@ int sensor_dw9823_actuator_init(struct v4l2_subdev *subdev, u32 val)
 	struct i2c_client *client = NULL;
 	long cal_addr;
 
+#ifdef USE_CAMERA_HW_BIG_DATA
+	struct cam_hw_param *hw_param = NULL;
+	struct fimc_is_device_sensor *device = NULL;
+#endif
+
 #ifdef DEBUG_ACTUATOR_TIME
 	struct timeval st, end;
 
@@ -280,13 +285,21 @@ int sensor_dw9823_actuator_init(struct v4l2_subdev *subdev, u32 val)
 	}
 
 	/* EEPROM AF calData address */
-	cal_addr = gPtr_lib_support.minfo->kvaddr_rear_cal + EEPROM_OEM_BASE;
+	cal_addr = gPtr_lib_support.minfo->kvaddr_cal[SENSOR_POSITION_REAR] + EEPROM_OEM_BASE;
 	cal_data = (struct fimc_is_caldata_list_dw9823 *)(cal_addr);
 
 	/* Read into EEPROM data or default setting */
 	ret = sensor_dw9823_init(client, cal_data);
-	if (ret < 0)
+	if (ret < 0) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+		device = v4l2_get_subdev_hostdata(subdev);
+		if (device)
+			fimc_is_sec_get_hw_param(&hw_param, device->position);
+		if (hw_param)
+			hw_param->i2c_af_err_cnt++;
+#endif
 		goto p_err;
+	}
 
 	ret = sensor_dw9823_init_position(client, actuator);
 	if (ret < 0)

@@ -19,7 +19,6 @@
 #include <linux/smc.h>
 
 #include <asm/neon.h>
-#include <soc/samsung/bts.h>
 
 #include "fimc-is-config.h"
 #include "fimc-is-param.h"
@@ -127,6 +126,90 @@ struct fimc_is_clk_gate clk_gate_vra;
 
 void __iomem *hwfc_rst;
 void __iomem *isp_lhm_atb_glue_rst;
+
+#if defined(SECURE_CAMERA_FACE)
+static int _fimc_is_hw_camif_secure_cfg(void *sensor_data)
+{
+	int ret = 0;
+	struct fimc_is_device_sensor *sensor;
+	struct exynos_platform_fimc_is_sensor *pdata;
+	struct fimc_is_device_csi *csi;
+	struct fimc_is_device_ischain *ischain;
+	u32 paf_ch = 0;
+	u32 csi_ch = 0;
+	u32 mux_set_val = MUX_SET_VAL_DEFAULT;
+	u32 mux_clr_val = MUX_CLR_VAL_DEFAULT;
+	unsigned long mux_backup_val = 0;
+
+	FIMC_BUG(!sensor_data);
+
+	sensor = (struct fimc_is_device_sensor *)sensor_data;
+
+	csi = (struct fimc_is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
+	if (!csi) {
+		merr("No CSIS device", sensor);
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	pdata = sensor->pdata;
+	if (!pdata) {
+		merr("Invalid platform_data of sensor", sensor);
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	ischain = sensor->ischain;
+	if (!ischain) {
+		merr("No ISChain device", sensor);
+		ret = -ENODEV;
+		goto p_err;
+	}
+
+	csi_ch = csi->instance;
+	if (csi_ch >= CSI_ID_MAX) {
+		merr("CSI channel is invalid(%d)", sensor, csi_ch);
+		ret = -ERANGE;
+		goto p_err;
+	}
+
+	if (!pdata->camif_mux_val_s) {
+		merr("Invalid camif_mux_val_s", sensor);
+		ret = -EINVAL;
+		goto p_err;
+	}
+
+	paf_ch = (ischain->group_3aa.id == GROUP_ID_3AA1) ? 1 : 0;
+	mux_set_val = pdata->camif_mux_val_s;
+
+	mutex_lock(&ischain->resourcemgr->sysreg_lock);
+
+	/* read previous value */
+	exynos_smc_readsfr((TZPC_CAM + TZPC_DECPROT1STAT_OFFSET), &mux_backup_val);
+
+	minfo("[S]CSI(%d) --> PAFSTAT(%d), mux(0x%08X), backup(0x%08lX)\n",
+		sensor, csi_ch, paf_ch, mux_set_val, mux_backup_val);
+
+	if (mux_backup_val != (unsigned long)mux_set_val) {
+		/* SMC call for PAFSTAT MUX */
+		ret = exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(TZPC_CAM + TZPC_DECPROT1CLR_OFFSET), mux_clr_val, 0);
+		if (ret)
+			err("CAMIF mux clear is Error(%x)\n", ret);
+
+		ret = exynos_smc(SMC_CMD_REG, SMC_REG_ID_SFR_W(TZPC_CAM + TZPC_DECPROT1SET_OFFSET), mux_set_val, 0);
+		if (ret)
+			err("CAMIF mux set is Error(%x)\n", ret);
+
+		exynos_smc_readsfr((TZPC_CAM + TZPC_DECPROT1STAT_OFFSET), &mux_backup_val);
+		info_hw("CAMIF mux status(0x%x) is (0x%lx)\n", (TZPC_CAM + TZPC_DECPROT1STAT_OFFSET), mux_backup_val);
+	}
+
+	mutex_unlock(&ischain->resourcemgr->sysreg_lock);
+
+p_err:
+	return ret;
+}
+#endif
 
 void fimc_is_enter_lib_isr(void)
 {
@@ -331,6 +414,8 @@ int fimc_is_hw_camif_cfg(void *sensor_data)
 	unsigned long mux_backup_val = 0;
 	u32 multi_ch;
 	int i;
+	unsigned long position_state = 0;
+	u32 csi0_mux, csi1_mux, csi2_mux;
 
 	FIMC_BUG(!sensor_data);
 
@@ -343,6 +428,16 @@ int fimc_is_hw_camif_cfg(void *sensor_data)
 	core = sensor->private_data;
 	if (!core)
 		goto p_err;
+
+#if defined(SECURE_CAMERA_FACE)
+	mutex_lock(&core->secure_state_lock);
+	if (core->secure_state == FIMC_IS_STATE_UNSECURE
+		&& core->scenario == FIMC_IS_SCENARIO_SECURE) {
+		mutex_unlock(&core->secure_state_lock);
+		return _fimc_is_hw_camif_secure_cfg(sensor_data);
+	}
+	mutex_unlock(&core->secure_state_lock);
+#endif
 
 	ischain = sensor->ischain;
 	if (!ischain)
@@ -361,7 +456,7 @@ int fimc_is_hw_camif_cfg(void *sensor_data)
 		ret = -ERANGE;
 		goto p_err;
 	}
-
+	
 	/* default PIP set by DT */
 	multi_ch = pdata->multi_ch;
 	if (pdata->camif_mux_val)
@@ -416,14 +511,30 @@ int fimc_is_hw_camif_cfg(void *sensor_data)
 	}
 
 	/* DPHY to CSIS MUX */
-	mux_set_val = fimc_is_hw_set_field_value(mux_set_val,
-					&sysreg_cam_fields[SYSREG_CAM_F_CSIS0_DPHY_S_MUXSEL], (pdata->csi_mux >> 0) & 0x1);
-	mux_set_val = fimc_is_hw_set_field_value(mux_set_val,
-					&sysreg_cam_fields[SYSREG_CAM_F_CSIS1_DPHY_S_MUXSEL], (pdata->csi_mux >> 1) & 0x1);
-	mux_set_val = fimc_is_hw_set_field_value(mux_set_val,
-					&sysreg_cam_fields[SYSREG_CAM_F_CSIS2_DPHY_S_MUXSEL], (pdata->csi_mux >> 2) & 0x1);
+	for (i = 0; i < FIMC_IS_SENSOR_COUNT; i++) {
+		if (test_bit(FIMC_IS_SENSOR_OPEN, &(core->sensor[i].state)))
+			set_bit(core->sensor[i].position, &position_state);
+	}
+	minfo("opened sensor position : %x\n", sensor, position_state);
 
-	minfo("CSI(%d) --> PAFSTAT(%d), mux(0x%08X), backup(0x%08lX)\n",
+	csi0_mux = (pdata->csi_mux >> 0) & 0x1;
+	csi1_mux = (pdata->csi_mux >> 1) & 0x1;
+	csi2_mux = (pdata->csi_mux >> 2) & 0x1;
+	/* TODO : need to be changed according to board configuration */
+	if (test_bit(SENSOR_POSITION_REAR, &position_state) && test_bit(SENSOR_POSITION_REAR3, &position_state)) {
+		csi1_mux = 0;
+		if (((pdata->csi_mux >> 1) & 0x1) != csi1_mux)
+			minfo("changed DPHY_CSIS mux1 value (%d)\n", sensor, csi1_mux);
+	}
+
+	mux_set_val = fimc_is_hw_set_field_value(mux_set_val,
+					&sysreg_cam_fields[SYSREG_CAM_F_CSIS0_DPHY_S_MUXSEL], csi0_mux);
+	mux_set_val = fimc_is_hw_set_field_value(mux_set_val,
+					&sysreg_cam_fields[SYSREG_CAM_F_CSIS1_DPHY_S_MUXSEL], csi1_mux);
+	mux_set_val = fimc_is_hw_set_field_value(mux_set_val,
+					&sysreg_cam_fields[SYSREG_CAM_F_CSIS2_DPHY_S_MUXSEL], csi2_mux);
+
+	minfo("[NS]CSI(%d) --> PAFSTAT(%d), mux(0x%08X), backup(0x%08lX)\n",
 		sensor, csi_ch, paf_ch, mux_set_val, mux_backup_val);
 
 	if (mux_backup_val != (unsigned long)mux_set_val) {
@@ -518,6 +629,25 @@ int fimc_is_hw_ischain_cfg(void *ischain_data)
 	return ret;
 }
 
+void fimc_is_hw_sysreg_mo_limit(bool enable)
+{
+	void __iomem *cam_xiu_cam_s0_reg;
+
+	cam_xiu_cam_s0_reg = ioremap_nocache(XIU_D_CAM_S0, SZ_4);
+	/* SYSREG_CAM - XIU_D_CAM_S0
+	 * [23:16] : PAFSTAT_AW_AC
+	 * [5:0] : PAFSTAT_AR_AC
+	 */
+	if (enable)
+		writel(0xFFFF0001, cam_xiu_cam_s0_reg); 	/* PAFSTAT_AR_AC = 0x01 */
+	else
+		writel(0xFFFF003F, cam_xiu_cam_s0_reg); 	/* PAFSTAT_AR_AC = 0x3F */
+
+	iounmap(cam_xiu_cam_s0_reg);
+
+	return;
+}
+
 #ifdef ENABLE_HWACG_CONTROL
 void fimc_is_hw_csi_qchannel_enable_all(bool enable)
 {
@@ -563,7 +693,7 @@ void fimc_is_hw_csi_qchannel_enable_all(bool enable)
 }
 #endif
 
-static inline void __nocfi fimc_is_isr1_ddk(void *data)
+static inline void fimc_is_isr1_ddk(void *data)
 {
 	struct fimc_is_interface_hwip *itf_hw = NULL;
 	struct hwip_intr_handler *intr_hw = NULL;
@@ -580,7 +710,7 @@ static inline void __nocfi fimc_is_isr1_ddk(void *data)
 	}
 }
 
-static inline void __nocfi fimc_is_isr2_ddk(void *data)
+static inline void fimc_is_isr2_ddk(void *data)
 {
 	struct fimc_is_interface_hwip *itf_hw = NULL;
 	struct hwip_intr_handler *intr_hw = NULL;
@@ -612,49 +742,49 @@ static inline void fimc_is_isr1_host(void *data)
 
 }
 
-static irqreturn_t __nocfi fimc_is_isr1_3aa0(int irq, void *data)
+static irqreturn_t fimc_is_isr1_3aa0(int irq, void *data)
 {
 	fimc_is_isr1_ddk(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr2_3aa0(int irq, void *data)
+static irqreturn_t fimc_is_isr2_3aa0(int irq, void *data)
 {
 	fimc_is_isr2_ddk(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr1_3aa1(int irq, void *data)
+static irqreturn_t fimc_is_isr1_3aa1(int irq, void *data)
 {
 	fimc_is_isr1_ddk(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr2_3aa1(int irq, void *data)
+static irqreturn_t fimc_is_isr2_3aa1(int irq, void *data)
 {
 	fimc_is_isr2_ddk(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr1_isp(int irq, void *data)
+static irqreturn_t fimc_is_isr1_isp(int irq, void *data)
 {
 	fimc_is_isr1_ddk(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr2_isp(int irq, void *data)
+static irqreturn_t fimc_is_isr2_isp(int irq, void *data)
 {
 	fimc_is_isr2_ddk(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr1_mcs(int irq, void *data)
+static irqreturn_t fimc_is_isr1_mcs(int irq, void *data)
 {
 	fimc_is_isr1_host(data);
 	return IRQ_HANDLED;
 }
 
-static irqreturn_t __nocfi fimc_is_isr1_vra(int irq, void *data)
+static irqreturn_t fimc_is_isr1_vra(int irq, void *data)
 {
 	struct fimc_is_interface_hwip *itf_hw = NULL;
 	struct hwip_intr_handler *intr_hw = NULL;
@@ -1128,7 +1258,7 @@ int fimc_is_hw_get_irq(void *itfc_data, void *pdev_data, int hw_id)
 }
 
 //#define DECLARE_FUNC_NAME(NUM, NAME) fimc_is_isr##NUM_##NAME
-static inline int __nocfi __fimc_is_hw_request_irq(struct fimc_is_interface_hwip *itf_hwip,
+static inline int __fimc_is_hw_request_irq(struct fimc_is_interface_hwip *itf_hwip,
 	const char *name,
 	int isr_num,
 	unsigned int added_irq_flags,
@@ -1336,33 +1466,6 @@ u32 fimc_is_hw_find_settle(u32 mipi_speed)
 	return fimc_is_csi_settle_table[m + 1];
 }
 
-void fimc_is_hw_set_bts_ext_ctrl(enum camera_bts_scn bts_scn, bool enable)
-{
-#ifdef CONFIG_EXYNOS_BTS
-	struct fimc_is_core *core = NULL;
-	struct fimc_is_resourcemgr *resourcemgr;
-
-	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
-	if (!core) {
-		err("core is NULL");
-		return;
-	}
-	resourcemgr = &core->resourcemgr;
-
-	switch (bts_scn) {
-	case BTS_SCN_THERMAL:
-		if (resourcemgr->throttling_bts != enable) {
-			bts_update_scen(BS_CAMERA_THERMAL, (int)enable);
-			resourcemgr->throttling_bts = enable;
-			info("call bts_update_scen(%d) for thermal\n", enable);
-		}
-		break;
-	default:
-		err("wrong bts_scn(%d)\n", bts_scn);
-	}
-#endif
-}
-
 #ifdef ENABLE_FULLCHAIN_OVERFLOW_RECOVERY
 int fimc_is_hw_overflow_recovery(void)
 {
@@ -1525,7 +1628,7 @@ unsigned int get_dma(struct fimc_is_device_sensor *device, u32 *dma_ch)
 				ret = -ERANGE;
 				goto p_err;
 			}
-
+			
 			switch (position) {
 			case SENSOR_POSITION_REAR:
 			case SENSOR_POSITION_FRONT:

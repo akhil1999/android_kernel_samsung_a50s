@@ -37,6 +37,7 @@
 #include "fimc-is-device-preprocessor.h"
 #include "fimc-is-core.h"
 #include "fimc-is-dvfs.h"
+#include "fimc-is-companion.h"
 
 extern struct pm_qos_request exynos_isp_qos_int;
 extern struct pm_qos_request exynos_isp_qos_mem;
@@ -451,6 +452,16 @@ static int fimc_is_preproc_gpio_off(struct fimc_is_device_preproc *device)
 			goto p_err;
 		}
 
+#ifdef CONFIG_USE_DIRECT_IS_CONTROL
+		/* Run FW/Data CRC on Close */
+#ifdef CONFIG_PREPROCESSOR_STANDBY_USE
+		ret = fimc_is_comp_run_CRC_on_Close(core);
+#ifdef CONFIG_COMPANION_C3_USE
+		if (!fimc_is_comp_check_CRC_Valid(core))
+			merr("crc is not valid", device);
+#endif
+#endif
+#endif
 		pdata = module->pdata;
 		if (!pdata) {
 			set_bit(FIMC_IS_MODULE_GPIO_ON, &module->state);

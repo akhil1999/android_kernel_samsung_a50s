@@ -247,7 +247,18 @@ const struct v4l2_file_operations fimc_is_ssx_video_fops = {
 static int fimc_is_ssx_video_querycap(struct file *file, void *fh,
 					struct v4l2_capability *cap)
 {
-	/* Todo : add to query capability code */
+	struct fimc_is_video *video = video_drvdata(file);
+
+	FIMC_BUG(!cap);
+	FIMC_BUG(!video);
+
+	snprintf(cap->driver, sizeof(cap->driver), "%s", video->vd.name);
+	snprintf(cap->card, sizeof(cap->card), "%s", video->vd.name);
+	cap->capabilities |= V4L2_CAP_STREAMING
+			| V4L2_CAP_VIDEO_OUTPUT
+			| V4L2_CAP_VIDEO_OUTPUT_MPLANE;
+	cap->device_caps |= cap->capabilities;
+
 	return 0;
 }
 
@@ -653,13 +664,18 @@ static int fimc_is_ssx_video_s_ctrl(struct file *file, void *priv,
 	case V4L2_CID_IS_DEBUG_DUMP:
 	case V4L2_CID_IS_DVFS_CLUSTER0:
 	case V4L2_CID_IS_DVFS_CLUSTER1:
+	case V4L2_CID_IS_DVFS_CLUSTER2:
 	case V4L2_CID_IS_DEBUG_SYNC_LOG:
 	case V4L2_CID_HFLIP:
 	case V4L2_CID_VFLIP:
 	case V4L2_CID_IS_INTENT:
 	case V4L2_CID_IS_CAPTURE_EXPOSURETIME:
 	case V4L2_CID_IS_TRANSIENT_ACTION:
+	case V4L2_CID_IS_FORCE_FLASH_MODE:
 	case V4L2_CID_IS_FACTORY_APERTURE_CONTROL:
+	case V4L2_CID_IS_OPENING_HINT:
+	case V4L2_CID_IS_CLOSING_HINT:
+	case V4L2_CID_IS_SECURE_MODE:
 		ret = fimc_is_video_s_ctrl(file, vctx, ctrl);
 		if (ret) {
 			merr("fimc_is_video_s_ctrl is fail(%d)", device, ret);
@@ -708,6 +724,12 @@ static int fimc_is_ssx_video_s_ctrl(struct file *file, void *priv,
 			err("failed to set irled max time : %d\n - %d",ctrl->value, ret);
 			ret = -EINVAL;
 		}
+		break;
+#endif
+#if defined(ENABLE_TUNING)
+	case V4L2_CID_IS_S_TUNING_CONFIG:
+		device->ischain->hardware->tuning_config = (u32)ctrl->value;
+		info("%s: Tuning_config (0x%x)\n", __func__, (u32)ctrl->value);
 		break;
 #endif
 	default:
@@ -804,12 +826,7 @@ static int fimc_is_ssx_video_g_ctrl(struct file *file, void *priv,
 	case VENDER_G_CTRL:
 		/* This s_ctrl is needed to skip, when the s_ctrl id was found. */
 		break;
-	case V4L2_CID_IS_G_SENSOR_FACTORY_RESULT:
-		if (test_bit(FIMC_IS_SENSOR_S_INPUT, &device->state))
-			ctrl->value = 1;
-		else
-			ctrl->value = 0;
-		break;
+
 	default:
 		ret = fimc_is_sensor_g_ctrl(device, ctrl);
 		if (ret) {

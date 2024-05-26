@@ -38,6 +38,10 @@
 
 #include <linux/oom.h>
 
+#if defined(MALI_SEC_SECURE_RENDERING) && defined(CONFIG_SOC_EXYNOS9630)
+#include <linux/smc.h>
+#endif
+
 extern struct kbase_device *pkbdev;
 
 #if defined (CONFIG_EXYNOS_THERMAL) && defined(CONFIG_GPU_THERMAL)
@@ -294,6 +298,11 @@ static int pm_callback_runtime_on(struct kbase_device *kbdev)
 #endif
 	gpu_dvfs_start_env_data_gathering(kbdev);
 	platform->power_status = true;
+
+#if defined(MALI_SEC_SECURE_RENDERING) && defined(CONFIG_SOC_EXYNOS9630)
+		exynos_smc(SMC_DRM_G3D_PPCFW_RESTORE, 0, 0, 0);
+#endif
+
 #if 0
 #ifdef CONFIG_MALI_DVFS
 #ifdef CONFIG_MALI_SEC_CL_BOOST
@@ -329,6 +338,10 @@ static void pm_callback_runtime_off(struct kbase_device *kbdev)
 	if (!platform->early_clk_gating_status)
 		gpu_control_disable_clock(kbdev);
 #endif /* CONFIG_MALI_DVFS */
+
+#if defined(MALI_SEC_SECURE_RENDERING) && defined(CONFIG_SOC_EXYNOS9630)
+			exynos_smc(SMC_DRM_G3D_POWER_OFF, 0, 0, 0);
+#endif
 
 #if defined(CONFIG_SOC_EXYNOS7420) || defined(CONFIG_SOC_EXYNOS7890)
 	preload_balance_setup(kbdev);

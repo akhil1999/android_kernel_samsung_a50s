@@ -34,7 +34,7 @@ static int abox_if_startup(struct snd_pcm_substream *substream,
 			(substream->stream == SNDRV_PCM_STREAM_CAPTURE) ?
 			'C' : 'P');
 
-	abox_request_cpu_gear(dev, abox_data, dai, abox_data->cpu_gear_min);
+	abox_request_cpu_gear_dai(dev, abox_data, dai, abox_data->cpu_gear_min);
 	ret = clk_enable(data->clk_bclk);
 	if (ret < 0) {
 		dev_err(dev, "Failed to enable bclk: %d\n", ret);
@@ -62,7 +62,7 @@ static void abox_if_shutdown(struct snd_pcm_substream *substream,
 
 	clk_disable(data->clk_bclk_gate);
 	clk_disable(data->clk_bclk);
-	abox_request_cpu_gear(dev, abox_data, dai, ABOX_CPU_GEAR_MIN);
+	abox_request_cpu_gear_dai(dev, abox_data, dai, ABOX_CPU_GEAR_MIN);
 }
 
 static int abox_if_hw_free(struct snd_pcm_substream *substream,
@@ -498,6 +498,21 @@ static int abox_uaif_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && (id == ABOX_UAIF0)) {
+			int route_ctrl0, mixp_value;
+
+			route_ctrl0 = readl(data->sfr_base + ABOX_ROUTE_CTRL0) & 0xF;
+			if (route_ctrl0 == 0x1) {
+				/* ROUTE_CTRL0[3:0] 0001: Result from SPUS #0(output of MIXP) */
+				mixp_value = readl(data->sfr_base +  ABOX_SPUS_CTRL2);
+				mixp_value |= 0x1;
+				writel(mixp_value, data->sfr_base + ABOX_SPUS_CTRL2);
+				dev_info(dev, "%s(%d), mixp=0x%x\n", __func__, trigger, mixp_value);
+			} else {
+				dev_info(dev, "%s(%d), UAIF0 is not connected to MIXP (%x)\n",
+						__func__, trigger, route_ctrl0 & 0xF);
+			}
+		}
 		ret = snd_soc_component_update_bits(cmpnt, ABOX_UAIF_CTRL0(id),
 				mask, 1 << shift);
 		break;
@@ -893,10 +908,9 @@ static struct platform_driver samsung_abox_if_driver = {
 
 module_platform_driver(samsung_abox_if_driver);
 
-int abox_if_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+int abox_if_hw_params_fixup_by_dai(struct snd_soc_dai *dai,
 		struct snd_pcm_hw_params *params, int stream)
 {
-	struct snd_soc_dai *dai = rtd->cpu_dai;
 	struct device *dev = dai->dev;
 	struct abox_if_data *data = dev_get_drvdata(dev);
 	unsigned int rate, channels, width;
@@ -955,6 +969,14 @@ int abox_if_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
 		ret = -EINVAL;
 
 	return ret;
+}
+
+int abox_if_hw_params_fixup(struct snd_soc_pcm_runtime *rtd,
+		struct snd_pcm_hw_params *params, int stream)
+{
+	struct snd_soc_dai *dai = rtd->cpu_dai;
+
+	return abox_if_hw_params_fixup_by_dai(dai, params, stream);
 }
 
 /* Module information */

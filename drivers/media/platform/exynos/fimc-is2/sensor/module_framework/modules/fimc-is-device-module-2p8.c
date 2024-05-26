@@ -98,16 +98,12 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_module_2p8_power_back_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
 #if defined(CONFIG_SOC_EXYNOS7870) || defined(CONFIG_SOC_EXYNOS7880)
 	int gpio_dovdd_en = 0;
 #endif
-
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -147,7 +143,7 @@ static int sensor_module_2p8_power_back_setpin(struct device *dev,
 #else /* defined(CONFIG_SOC_EXYNOS9610) */
 #if defined(CONFIG_SOC_EXYNOS7870) || defined(CONFIG_SOC_EXYNOS7880)
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_dovdd_en, "dovdd_1p8_en", PIN_OUTPUT, 1, 0);
-#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "DOVDD_REAR_CAM_1V8", PIN_REGULATOR, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON, gpio_none, "VDD_REAR_CAM_SENSOR_2V8", PIN_REGULATOR, 1, 0);
 #endif
@@ -170,7 +166,7 @@ static int sensor_module_2p8_power_back_setpin(struct device *dev,
 #else /* defined(CONFIG_SOC_EXYNOS9610) */
 #if defined(CONFIG_SOC_EXYNOS7870) || defined(CONFIG_SOC_EXYNOS7880)
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_dovdd_en, "dovdd_1p8_en", PIN_INPUT, 0, 0);
-#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "VDD_REAR_CAM_SENSOR_2V8", PIN_REGULATOR, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_OFF, gpio_none, "DOVDD_REAR_CAM_1V8", PIN_REGULATOR, 0, 0);
 #endif
@@ -191,7 +187,7 @@ static int sensor_module_2p8_power_back_setpin(struct device *dev,
 #else /* defined(CONFIG_SOC_EXYNOS9610) */
 #if defined(CONFIG_SOC_EXYNOS7870) || defined(CONFIG_SOC_EXYNOS7880)
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_dovdd_en, "dovdd_1p8_en", PIN_OUTPUT, 1, 0);
-#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "DOVDD_REAR_CAM_1V8", PIN_REGULATOR, 1, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_ON, gpio_none, "VDD_REAR_CAM_SENSOR_2V8", PIN_REGULATOR, 1, 0);
 #endif
@@ -215,7 +211,7 @@ static int sensor_module_2p8_power_back_setpin(struct device *dev,
 #else /* defined(CONFIG_SOC_EXYNOS9610) */
 #if defined(CONFIG_SOC_EXYNOS7870) || defined(CONFIG_SOC_EXYNOS7880)
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_dovdd_en, "dovdd_1p8_en", PIN_INPUT, 0, 0);
-#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810)
+#elif defined(CONFIG_SOC_EXYNOS7872) || defined(CONFIG_SOC_EXYNOS9810) || defined(CONFIG_SOC_EXYNOS9820)
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "VDD_REAR_CAM_SENSOR_2V8", PIN_REGULATOR, 0, 0);
 	SET_PIN(pdata, SENSOR_SCENARIO_VISION, GPIO_SCENARIO_OFF, gpio_none, "DOVDD_REAR_CAM_1V8", PIN_REGULATOR, 0, 0);
 #endif
@@ -234,16 +230,12 @@ static int sensor_module_2p8_power_back_setpin(struct device *dev,
 static int sensor_module_2p8_power_front_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
 	int gpio_dovdd_en = 0;
 	int gpio_dvdd_en = 0;
 	int gpio_af_en = 0;
-
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 

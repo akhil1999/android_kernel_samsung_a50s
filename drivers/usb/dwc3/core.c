@@ -50,6 +50,32 @@
 
 #define DWC3_DEFAULT_AUTOSUSPEND_DELAY	5000 /* ms */
 
+/* for BC1.2 spec */
+int dwc3_set_vbus_current(int state)
+{
+	struct power_supply *psy;
+	union power_supply_propval pval = {0};
+
+	psy = power_supply_get_by_name("battery");
+	if (!psy) {
+		pr_err("%s: fail to get battery power_supply\n", __func__);
+		return -1;
+	}
+
+	pval.intval = state;
+	power_supply_set_property(psy, (enum power_supply_property)POWER_SUPPLY_EXT_PROP_USB_CONFIGURE, &pval);
+	power_supply_put(psy);
+	return 0;
+}
+
+static void dwc3_exynos_set_vbus_current_work(struct work_struct *w)
+{
+	struct dwc3 *dwc = container_of(w, struct dwc3, set_vbus_current_work);
+
+	dwc3_set_vbus_current(dwc->vbus_current);
+}
+/* -------------------------------------------------------------------------- */
+
 /**
  * dwc3_get_dr_mode - Validates and sets dr_mode
  * @dwc: pointer to our context structure
@@ -253,7 +279,7 @@ void dwc3_core_config(struct dwc3 *dwc)
 	if (dwc->dis_u2_freeclk_exists_quirk) {
 		reg &= ~DWC3_GUCTL_REFCLKPER_MASK;
 		/* fix ITP interval time to 125us */
-		reg |= DWC3_GUCTL_REFCLKPER(0x14);
+		reg |= DWC3_GUCTL_REFCLKPER(0xF);
 	}
 	if (dwc->sparse_transfer_control)
 		reg |= DWC3_GUCTL_SPRSCTRLTRANSEN;
@@ -310,6 +336,24 @@ void dwc3_core_config(struct dwc3 *dwc)
 		reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
 		reg |= DWC3_GUSB3PIPECTL_DISRXDETINP3;
 		dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
+	}
+
+	reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
+	if (dwc->ux_exit_in_px_quirk)
+		reg |= DWC3_GUSB3PIPECTL_UX_EXIT_PX;
+	if (dwc->elastic_buf_mode_quirk)
+		reg |= DWC3_ELASTIC_BUFFER_MODE;
+	dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
+
+	if (dwc->revision > DWC3_USB31_REVISION_120A) {
+		reg = dwc3_readl(dwc->regs, DWC3_LLUCTL);
+		reg |= (DWC3_PENDING_HP_TIMER_US(0xb) | DWC3_EN_US_HP_TIMER);
+		dwc3_writel(dwc->regs, DWC3_LLUCTL, reg);
+
+		reg = dwc3_readl(dwc->regs, DWC3_LSKIPFREQ);
+		reg |= (DWC3_PM_ENTRY_TIMER_US(0x9) |
+			DWC3_PM_LC_TIMER_US(0x5) | DWC3_EN_PM_TIMER_US);
+		dwc3_writel(dwc->regs, DWC3_LSKIPFREQ, reg);
 	}
 
 	/*
@@ -713,11 +757,10 @@ int dwc3_phy_setup(struct dwc3 *dwc)
 
 	reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
 
-	/*
-	 * Make sure UX_EXIT_PX is cleared as that causes issues with some
-	 * PHYs. Also, this bit is not supposed to be used in normal operation.
-	 */
-	reg &= ~DWC3_GUSB3PIPECTL_UX_EXIT_PX;
+	if (dwc->ux_exit_in_px_quirk)
+		reg |= DWC3_GUSB3PIPECTL_UX_EXIT_PX;
+	else
+		reg &= ~DWC3_GUSB3PIPECTL_UX_EXIT_PX;
 
 	/*
 	 * Above 1.94a, it is recommended to set DWC3_GUSB3PIPECTL_SUSPHY
@@ -961,7 +1004,7 @@ static int dwc3_core_ulpi_init(struct dwc3 *dwc);
  */
 int dwc3_core_init(struct dwc3 *dwc)
 {
-	u32			reg = 0;
+	u32			reg;
 	struct dwc3_otg		*dotg = dwc->dotg;
 	int			ret;
 
@@ -1005,6 +1048,10 @@ int dwc3_core_init(struct dwc3 *dwc)
 	ret = dwc3_core_soft_reset(dwc);
 	if (ret)
 		goto err0a;
+
+	ret = dwc3_phy_setup(dwc);
+	if (ret)
+		goto err0;
 
 	if (dotg) {
 		phy_tune(dwc->usb2_generic_phy, dotg->otg.state);
@@ -1376,6 +1423,10 @@ static void dwc3_get_properties(struct dwc3 *dwc)
 				"snps,del_p1p2p3_quirk");
 	dwc->u1u2_exitfail_to_recov_quirk = device_property_read_bool(dev,
 				"snps,u1u2_exitfail_quirk");
+	dwc->ux_exit_in_px_quirk = device_property_read_bool(dev,
+				"snps,ux_exit_in_px_quirk");
+	dwc->elastic_buf_mode_quirk = device_property_read_bool(dev,
+				"snps,elastic_buf_mode_quirk");
 	dwc->del_phy_power_chg_quirk = device_property_read_bool(dev,
 				"snps,del_phy_power_chg_quirk");
 	dwc->lfps_filter_quirk = device_property_read_bool(dev,
@@ -1578,6 +1629,8 @@ static int dwc3_probe(struct platform_device *pdev)
 	ret = pm_runtime_put(dev);
 	pr_info("%s, pm_runtime_put = %d\n",
 			__func__, ret);
+
+	INIT_WORK(&dwc->set_vbus_current_work, dwc3_exynos_set_vbus_current_work);
 
 	pr_info("%s: ---\n", __func__);
 	return 0;

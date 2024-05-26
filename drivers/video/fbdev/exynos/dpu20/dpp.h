@@ -61,27 +61,27 @@ extern int dpp_log_level;
 #define dpp_err(fmt, ...)							\
 	do {									\
 		if (dpp_log_level >= 3) {					\
-			pr_err(pr_fmt(fmt), ##__VA_ARGS__);			\
+			pr_err(pr_fmt("decon: "fmt), ##__VA_ARGS__);			\
 		}								\
 	} while (0)
 
 #define dpp_warn(fmt, ...)							\
 	do {									\
 		if (dpp_log_level >= 4) {					\
-			pr_warn(pr_fmt(fmt), ##__VA_ARGS__);			\
+			pr_warn(pr_fmt("decon: "fmt), ##__VA_ARGS__);			\
 		}								\
 	} while (0)
 
 #define dpp_info(fmt, ...)							\
 	do {									\
 		if (dpp_log_level >= 6)					\
-			pr_info(pr_fmt(fmt), ##__VA_ARGS__);			\
+			pr_info(pr_fmt("decon: "fmt), ##__VA_ARGS__);			\
 	} while (0)
 
 #define dpp_dbg(fmt, ...)							\
 	do {									\
 		if (dpp_log_level >= 7)					\
-			pr_info(pr_fmt(fmt), ##__VA_ARGS__);			\
+			pr_info(pr_fmt("decon: "fmt), ##__VA_ARGS__);			\
 	} while (0)
 
 /* TODO: This will be removed */

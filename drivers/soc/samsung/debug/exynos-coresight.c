@@ -16,6 +16,7 @@
 #include <linux/kallsyms.h>
 #include <linux/of.h>
 #include <linux/io.h>
+#include <linux/debug-snapshot.h>
 
 #include <asm/core_regs.h>
 #include <asm/cputype.h>
@@ -607,6 +608,9 @@ static int exynos_cs_init_dt(void)
 	if (val & SJTAG_SOFT_LOCK)
 		return -EIO;
 
+	if (dbg_snapshot_get_sjtag_status() == true)
+		return -EIO;
+
 	while ((np = of_find_node_by_type(np, "cs"))) {
 		ret = of_property_read_u32(np, "dbg-offset", &offset);
 		if (ret)
@@ -657,14 +661,14 @@ static struct bus_type ecs_subsys = {
 	.dev_name = "exynos-cs",
 };
 
-static ssize_t ecs_enable_show(struct device *dev,
-			         struct device_attribute *attr, char *buf)
+static ssize_t ecs_enable_show(struct kobject *kobj,
+			         struct kobj_attribute *attr, char *buf)
 {
 	return scnprintf(buf, 10, "%sable\n", FLAG_T32_EN ? "en" : "dis");
 }
 
-static ssize_t ecs_enable_store(struct device *dev,
-				struct device_attribute *attr,
+static ssize_t ecs_enable_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
 				const char *buf, size_t count)
 {
 	int en;
@@ -680,7 +684,7 @@ static ssize_t ecs_enable_store(struct device *dev,
 	return count;
 }
 
-static struct device_attribute ecs_enable_attr =
+static struct kobj_attribute ecs_enable_attr =
         __ATTR(enabled, 0644, ecs_enable_show, ecs_enable_store);
 
 static struct attribute *ecs_sysfs_attrs[] = {

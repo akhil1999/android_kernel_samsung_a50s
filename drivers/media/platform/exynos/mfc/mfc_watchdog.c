@@ -14,7 +14,6 @@
 #endif
 
 #include "mfc_watchdog.h"
-#include "mfc_otf.h"
 
 #include "mfc_sync.h"
 
@@ -324,8 +323,9 @@ static void __mfc_dump_state(struct mfc_dev *dev)
 	pr_err("has 2sysmmu:%d, has hwfc:%d, has mmcache:%d, shutdown:%d, sleep:%d, itmon_notified:%d\n",
 			dev->has_2sysmmu, dev->has_hwfc, dev->has_mmcache,
 			dev->shutdown, dev->sleep, dev->itmon_notified);
-	pr_err("options debug_level:%d, debug_mode:%d, mmcache:%d, perf_boost:%d\n",
-			debug_level, dev->pdata->debug_mode, dev->mmcache.is_on_status, perf_boost_mode);
+	pr_err("options debug_level:%d, debug_mode:%d (%d), mmcache:%d, perf_boost:%d\n",
+			debug_level, dev->pdata->debug_mode, debug_mode_en,
+			dev->mmcache.is_on_status, perf_boost_mode);
 	if (nal_q_handle)
 		pr_err("NAL-Q state:%d, exception:%d, in_exe_cnt: %d, out_exe_cnt: %d\n",
 				nal_q_handle->nal_q_state, nal_q_handle->nal_q_exception,
@@ -533,14 +533,6 @@ static void __mfc_dump_info(struct mfc_dev *dev)
 	__mfc_save_logging_sfr(dev);
 	__mfc_dump_buffer_info(dev);
 	__mfc_dump_regs(dev);
-
-	if (dev->num_otf_inst) {
-		pr_err("-----------dumping TS-MUX info-----------\n");
-#ifdef CONFIG_VIDEO_EXYNOS_TSMUX
-		tsmux_sfr_dump();
-#endif
-	}
-
 	/* If there was fault addr, sysmmu info is already printed out */
 	if (!dev->logging_data->fault_addr)
 		exynos_sysmmu_show_status(dev->device);
@@ -555,7 +547,7 @@ static void __mfc_dump_info_and_stop_hw(struct mfc_dev *dev)
 
 static void __mfc_dump_info_and_stop_hw_debug(struct mfc_dev *dev)
 {
-	if (!dev->pdata->debug_mode)
+	if (!dev->pdata->debug_mode && !debug_mode_en)
 		return;
 
 	MFC_TRACE_DEV("** mfc will stop!!!\n");

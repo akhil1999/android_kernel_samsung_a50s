@@ -340,7 +340,7 @@ static void __cpufreq_notify_transition(struct cpufreq_policy *policy,
 			 (unsigned long)freqs->new, (unsigned long)freqs->cpu);
 		trace_cpu_frequency(freqs->new, freqs->cpu);
 		cpufreq_stats_record_transition(policy, freqs->new);
-		cpufreq_times_record_transition(freqs);
+		cpufreq_times_record_transition(policy, freqs->new);
 		srcu_notifier_call_chain(&cpufreq_transition_notifier_list,
 				CPUFREQ_POSTCHANGE, freqs);
 		if (likely(policy) && likely(policy->cpu == freqs->cpu))
@@ -1533,7 +1533,12 @@ static void cpufreq_remove_dev(struct device *dev, struct subsys_interface *sif)
 static void cpufreq_out_of_sync(struct cpufreq_policy *policy,
 				unsigned int new_freq)
 {
+	unsigned int cur_freq = cpufreq_driver->get(policy->cpu);
 	struct cpufreq_freqs freqs;
+
+	/* False alarm: policy->cur updated appropriately */
+	if (cur_freq == policy->cur)
+		return;
 
 	pr_debug("Warning: CPU frequency out of sync: cpufreq and timing core thinks of %u, is %u kHz\n",
 		 policy->cur, new_freq);
@@ -1543,6 +1548,11 @@ static void cpufreq_out_of_sync(struct cpufreq_policy *policy,
 
 	cpufreq_freq_transition_begin(policy, &freqs);
 	cpufreq_freq_transition_end(policy, &freqs, 0);
+
+	cur_freq = cpufreq_driver->get(policy->cpu);
+
+	if (cur_freq != policy->cur)
+		pr_debug("Warning: CPU frequency stays unsynced even after trial\n");
 }
 
 /**
@@ -1928,9 +1938,14 @@ EXPORT_SYMBOL(cpufreq_unregister_notifier);
 unsigned int cpufreq_driver_fast_switch(struct cpufreq_policy *policy,
 					unsigned int target_freq)
 {
+	int ret;
 	target_freq = clamp_val(target_freq, policy->min, policy->max);
 
-	return cpufreq_driver->fast_switch(policy, target_freq);
+        ret = cpufreq_driver->fast_switch(policy, target_freq);
+	if (ret)
+		cpufreq_times_record_transition(policy, ret);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(cpufreq_driver_fast_switch);
 
@@ -2024,7 +2039,7 @@ int __weak __cpufreq_driver_target(struct cpufreq_policy *policy,
 	unsigned int old_target_freq = target_freq;
 	int index;
 
-	if (cpufreq_disabled())
+	if (cpufreq_disabled() || !policy->freq_table)
 		return -ENODEV;
 
 	/* Make sure that target_freq is within supported range */

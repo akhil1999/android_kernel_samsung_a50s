@@ -62,6 +62,10 @@
 #endif
 #include <soc/samsung/exynos-cpuhp.h>
 
+#ifdef CONFIG_SEC_PM
+#include <linux/sec_class.h>
+#endif
+
 /* Exynos generic registers */
 #define EXYNOS_TMU_REG_TRIMINFO7_0(p)	(((p) - 0) * 4)
 #define EXYNOS_TMU_REG_TRIMINFO15_8(p)	(((p) - 8) * 4 + 0x400)
@@ -213,6 +217,9 @@ static bool suspended;
 static DEFINE_MUTEX (thermal_suspend_lock);
 #endif
 static bool is_cpu_hotplugged_out;
+
+/* Define thermal interrupt related workqueue */
+struct workqueue_struct *thermal_irq_wq = NULL;
 
 /* list of multiple instance for each thermal sensor */
 static LIST_HEAD(dtm_dev_list);
@@ -849,6 +856,30 @@ static int exynos_get_temp(void *p, int *temp)
 	return 0;
 }
 
+#ifdef CONFIG_SEC_BOOTSTAT
+void sec_bootstat_get_thermal(int *temp)
+{
+	struct exynos_tmu_data *data;
+
+	list_for_each_entry(data, &dtm_dev_list, node) {
+		if (!strncasecmp(data->tmu_name, "BIG", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[0]);
+			temp[0] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "LITTLE", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[1]);
+			temp[1] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "G3D", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[2]);
+			temp[2] /= 1000;
+		} else if (!strncasecmp(data->tmu_name, "ISP", THERMAL_NAME_LENGTH)) {
+			exynos_get_temp(data, &temp[3]);
+			temp[3] /= 1000;
+		} else
+			continue;
+	}
+}
+#endif
+
 static int exynos_get_trend(void *p, int trip, enum thermal_trend *trend)
 {
 	struct exynos_tmu_data *data = p;
@@ -979,12 +1010,6 @@ static int exynos9610_tmu_read(struct exynos_tmu_data *data)
 					data->limited_frequency);
 			cpufreq_limited = true;
 			dbg_snapshot_thermal(data->pdata, temp, "limited", data->limited_frequency);
-		} else if ((temp < data->limited_threshold_release) && cpufreq_limited) {
-			pm_qos_update_request(&thermal_cpu_limit_request,
-					PM_QOS_CPU_FREQ_MAX_DEFAULT_VALUE);
-			cpufreq_limited = false;
-			dbg_snapshot_thermal(data->pdata, temp, "release_limited",
-							PM_QOS_CPU_FREQ_MAX_DEFAULT_VALUE);
 		}
 	}
 
@@ -1052,7 +1077,7 @@ static irqreturn_t exynos_tmu_irq(int irq, void *id)
 	struct exynos_tmu_data *data = id;
 
 	disable_irq_nosync(irq);
-	schedule_work(&data->irq_work);
+	queue_work(thermal_irq_wq, &data->irq_work);
 
 	return IRQ_HANDLED;
 }
@@ -1289,13 +1314,18 @@ static int exynos_map_dt_data(struct platform_device *pdev)
 	return 0;
 }
 
+static DEFINE_MUTEX (thermal_throttle_lock);
+
 static int exynos_throttle_cpu_hotplug(void *p, int temp)
 {
 	struct exynos_tmu_data *data = p;
 	int ret = 0;
 	struct cpumask mask;
+	unsigned int online_cpus;
 
 	temp = temp / MCELSIUS;
+
+	mutex_lock(&data->hotplug_lock);
 
 	if (is_cpu_hotplugged_out) {
 		if (temp < data->hotplug_in_threshold) {
@@ -1305,6 +1335,9 @@ static int exynos_throttle_cpu_hotplug(void *p, int temp)
 			 */
 			exynos_cpuhp_request("DTM", *cpu_possible_mask, 0);
 			is_cpu_hotplugged_out = false;
+
+			online_cpus = *(unsigned int *)cpumask_bits(cpu_online_mask);
+			pr_info("CPU HOTPLUG IN : 0x%x, Temp : %d\n", online_cpus, temp);
 		}
 	} else {
 		if (temp >= data->hotplug_out_threshold) {
@@ -1315,8 +1348,28 @@ static int exynos_throttle_cpu_hotplug(void *p, int temp)
 			is_cpu_hotplugged_out = true;
 			cpumask_and(&mask, cpu_possible_mask, cpu_coregroup_mask(0));
 			exynos_cpuhp_request("DTM", mask, 0);
+
+			online_cpus = *(unsigned int *)cpumask_bits(cpu_online_mask);
+			pr_info("CPU HOTPLUG OUT : 0x%x, Temp : %d\n", online_cpus, temp);
 		}
 	}
+
+	mutex_unlock(&data->hotplug_lock);
+
+#if defined(CONFIG_SOC_EXYNOS9610)
+	if (data->limited_frequency) {
+		/* cpufreq_limited flag is high and temp is lower than
+		 * limited_threshold_release, release max frequency.
+		 */
+		if ((temp < data->limited_threshold_release) && cpufreq_limited) {
+			pm_qos_update_request(&thermal_cpu_limit_request,
+					PM_QOS_CPU_FREQ_MAX_DEFAULT_VALUE);
+			cpufreq_limited = false;
+			dbg_snapshot_thermal(data->pdata, temp, "release_limited",
+							PM_QOS_CPU_FREQ_MAX_DEFAULT_VALUE);
+		}
+	}
+#endif
 
 	return ret;
 }
@@ -1692,6 +1745,7 @@ struct exynos_tmu_data *gpu_thermal_data;
 static int exynos_tmu_probe(struct platform_device *pdev)
 {
 	struct exynos_tmu_data *data;
+	struct workqueue_attrs attr;
 	unsigned int ctrl;
 	int ret;
 
@@ -1706,6 +1760,18 @@ static int exynos_tmu_probe(struct platform_device *pdev)
 	ret = exynos_map_dt_data(pdev);
 	if (ret)
 		goto err_sensor;
+
+	/* Regist high priorty workqueue */
+	if (!thermal_irq_wq) {
+		attr.nice = 0;
+		attr.no_numa = true;
+		cpumask_copy(attr.cpumask, cpu_coregroup_mask(0));
+
+		thermal_irq_wq = alloc_workqueue("%s", WQ_HIGHPRI | WQ_UNBOUND |\
+				WQ_MEM_RECLAIM | WQ_FREEZABLE,
+				0, "thermal_irq");
+		apply_workqueue_attrs(thermal_irq_wq, &attr);
+	}
 
 	INIT_WORK(&data->irq_work, exynos_tmu_work);
 
@@ -1793,6 +1859,9 @@ static int exynos_tmu_probe(struct platform_device *pdev)
 		cpuhp_setup_state_nocalls(CPUHP_EXYNOS_BOOST_CTRL_POST, "dtm_boost_cb",
 				exynos_tmu_boost_callback, exynos_tmu_boost_callback);
 	}
+
+	if (data->hotplug_enable)
+		mutex_init(&data->hotplug_lock);
 
 	if (!IS_ERR(data->tzd))
 		data->tzd->ops->set_mode(data->tzd, THERMAL_DEVICE_ENABLED);
@@ -2047,6 +2116,80 @@ static int exynos_thermal_create_debugfs(void)
 	return 0;
 }
 arch_initcall(exynos_thermal_create_debugfs);
+
+#ifdef CONFIG_SEC_PM
+
+#define NR_THERMAL_SENSOR_MAX	10
+
+static ssize_t exynos_tmu_curr_temp(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	struct exynos_tmu_data *data;
+	int temp[NR_THERMAL_SENSOR_MAX] = {0, };
+	int i, id_max = 0;
+	ssize_t ret = 0;
+
+	list_for_each_entry(data, &dtm_dev_list, node) {
+		if (data->id < NR_THERMAL_SENSOR_MAX) {
+			exynos_get_temp(data, &temp[data->id]);
+			temp[data->id] /= 1000;
+
+			if (id_max < data->id)
+				id_max = data->id;
+		} else {
+			pr_err("%s: id:%d %s\n", __func__, data->id,
+					data->tmu_name);
+			continue;
+		}
+	}
+
+	for (i = 0; i <= id_max; i++)
+		ret += sprintf(buf + ret, "%d,", temp[i]);
+
+	sprintf(buf + ret - 1, "\n");
+
+	return ret;
+}
+
+static DEVICE_ATTR(curr_temp, 0444, exynos_tmu_curr_temp, NULL);
+
+static struct attribute *exynos_tmu_sec_pm_attributes[] = {
+	&dev_attr_curr_temp.attr,
+	NULL
+};
+
+static const struct attribute_group exynos_tmu_sec_pm_attr_grp = {
+	.attrs = exynos_tmu_sec_pm_attributes,
+};
+
+static int __init exynos_tmu_sec_pm_init(void)
+{
+	int ret = 0;
+	struct device *dev;
+
+	dev = sec_device_create(NULL, "exynos_tmu");
+
+	if (IS_ERR(dev)) {
+		pr_err("%s: failed to create device\n", __func__);
+		return PTR_ERR(dev);
+	}
+
+	ret = sysfs_create_group(&dev->kobj, &exynos_tmu_sec_pm_attr_grp);
+	if (ret) {
+		pr_err("%s: failed to create sysfs group(%d)\n", __func__, ret);
+		goto err_create_sysfs;
+	}
+
+	return ret;
+
+err_create_sysfs:
+	sec_device_destroy(dev->devt);
+
+	return ret;
+}
+
+late_initcall(exynos_tmu_sec_pm_init);
+#endif /* CONFIG_SEC_PM */
 
 MODULE_DESCRIPTION("EXYNOS TMU Driver");
 MODULE_AUTHOR("Donggeun Kim <dg77.kim@samsung.com>");

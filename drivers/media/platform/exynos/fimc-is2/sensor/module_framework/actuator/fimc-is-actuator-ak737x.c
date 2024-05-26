@@ -144,6 +144,10 @@ int sensor_ak737x_actuator_init(struct v4l2_subdev *subdev, u32 val)
 	int i = 0;
 	struct fimc_is_actuator *actuator;
 	struct i2c_client *client = NULL;
+#ifdef USE_CAMERA_HW_BIG_DATA
+	struct cam_hw_param *hw_param = NULL;
+	struct fimc_is_device_sensor *device = NULL;
+#endif
 #ifdef DEBUG_ACTUATOR_TIME
 	struct timeval st, end;
 
@@ -194,8 +198,16 @@ int sensor_ak737x_actuator_init(struct v4l2_subdev *subdev, u32 val)
 
 	for (i = 0; i < product_id_len; i += 2) {
 		ret = fimc_is_sensor_addr8_read8(client, product_id_list[i], &product_id);
-		if (ret < 0)
+		if (ret < 0) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+			device = v4l2_get_subdev_hostdata(subdev);
+			if (device)
+				fimc_is_sec_get_hw_param(&hw_param, device->position);
+			if (hw_param)
+				hw_param->i2c_af_err_cnt++;
+#endif
 			goto p_err;
+		}
 
 		pr_info("[%s][%d] dt[addr=%x,id=%x], module id=%x\n",
 				__func__, actuator->device, product_id_list[i], product_id_list[i+1], product_id);

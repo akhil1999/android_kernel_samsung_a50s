@@ -118,14 +118,10 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_module_rpb_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
 	int gpio_mclk = 0;
-
-	BUG_ON(!dev);
-
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E\n", __func__);
 
@@ -276,28 +272,32 @@ int sensor_module_rpb_probe(struct platform_device *pdev)
 	for (vc_idx = 0; vc_idx < VC_BUF_DATA_TYPE_MAX; vc_idx++) {
 		switch (vc_idx) {
 		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
-			module->vc_max_size[vc_idx].width = S5KRPB_SENSOR_STAT1_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = S5KRPB_SENSOR_STAT1_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = S5KRPB_SENSOR_STAT1_ELEMENT;
-			module->vc_max_size[vc_idx].stat_type = S5KRPB_SENSOR_STAT1_STAT_TYPE;
+			module->vc_extra_info[vc_idx].stat_type = S5KRPB_SENSOR_STAT1_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5KRPB_SENSOR_STAT1_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5KRPB_SENSOR_STAT1_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5KRPB_SENSOR_STAT1_ELEMENT;
 			break;
 		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
-			module->vc_max_size[vc_idx].width = S5KRPB_GENERAL_STAT1_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = S5KRPB_GENERAL_STAT1_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = S5KRPB_GENERAL_STAT1_ELEMENT;
-			module->vc_max_size[vc_idx].stat_type = S5KRPB_GENERAL_STAT1_STAT_TYPE;
+			module->vc_extra_info[vc_idx].stat_type = S5KRPB_GENERAL_STAT1_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5KRPB_GENERAL_STAT1_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5KRPB_GENERAL_STAT1_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5KRPB_GENERAL_STAT1_ELEMENT;
 			break;
 		case VC_BUF_DATA_TYPE_SENSOR_STAT2:
-			module->vc_max_size[vc_idx].width = S5KRPB_SENSOR_STAT2_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = S5KRPB_SENSOR_STAT2_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = S5KRPB_SENSOR_STAT2_ELEMENT;
-			module->vc_max_size[vc_idx].stat_type = S5KRPB_SENSOR_STAT2_STAT_TYPE;
+			module->vc_extra_info[vc_idx].stat_type = S5KRPB_SENSOR_STAT2_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5KRPB_SENSOR_STAT2_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5KRPB_SENSOR_STAT2_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5KRPB_SENSOR_STAT2_ELEMENT;
 			break;
 		case VC_BUF_DATA_TYPE_GENERAL_STAT2:
-			module->vc_max_size[vc_idx].width = S5KRPB_GENERAL_STAT2_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = S5KRPB_GENERAL_STAT2_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = S5KRPB_GENERAL_STAT2_ELEMENT;
-			module->vc_max_size[vc_idx].stat_type = S5KRPB_GENERAL_STAT2_STAT_TYPE;
+			module->vc_extra_info[vc_idx].stat_type = S5KRPB_GENERAL_STAT2_STAT_TYPE;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = S5KRPB_GENERAL_STAT2_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = S5KRPB_GENERAL_STAT2_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = S5KRPB_GENERAL_STAT2_ELEMENT;
 			break;
 		}
 	}

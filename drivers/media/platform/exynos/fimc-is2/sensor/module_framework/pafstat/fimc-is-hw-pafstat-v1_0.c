@@ -146,41 +146,30 @@ void pafstat_hw_com_s_lic_mode(void __iomem *base_reg, u32 id,
 			&pafstat_fields[PAFSTAT_F_COM_LIC_BYPASS], 0); /* TODO */
 }
 
-int pafstat_hw_s_4ppc(void __iomem *base_reg, u32 width, u32 height, u32 frame_rate,
-		u32 mipi_speed, u32 lanes, const char *conid)
+int pafstat_hw_s_4ppc(void __iomem *base_reg, u32 csi_pixel_mode)
 {
-	struct clk *target;
-	u32 target_clk;
-	u32 need_clk_by_rate;
-	u32 need_clk_by_speed;
-	u32 pixel_mode;
+	u32 pafstat_pixel_mode;
 
-	target = clk_get(fimc_is_dev, conid);
-	if (IS_ERR_OR_NULL(target)) {
-		err("%s: can not get target: %s\n", __func__, conid);
-		return -ENODEV;
+	switch (csi_pixel_mode) {
+	case 0: /* 1ppc mode */
+		warn("There is no 1ppc mode in pafstat, it will be set 2ppc mode\n");
+		pafstat_pixel_mode = PAFSTAT_PIXEL_MODE_DUAL;
+		break;
+	case 1: /* 2ppc mode */
+		info("pafstat will be set 2ppc mode\n");
+		pafstat_pixel_mode = PAFSTAT_PIXEL_MODE_DUAL;
+		break;
+	case 2: /* 4ppc mode */
+		info("pafstat will be set 4ppc mode\n");
+		pafstat_pixel_mode = PAFSTAT_PIXEL_MODE_QUAD;
+		break;
+	default:
+		err("not supported pixel mode: %d", csi_pixel_mode);
+		return -EINVAL;
 	}
 
-	target_clk = clk_get_rate(target);
-	if (!target_clk) {
-		err("%s: clk value is zero: %s\n", __func__, conid);
-		return -ENODEV;
-	}
-
-	need_clk_by_rate = width * height * frame_rate;
-	need_clk_by_speed = mipi_speed * lanes / 10; /* TODO: only RAW10 format case */
-	info("need_clk (rate: %d)(speed: %d)\n", need_clk_by_rate, need_clk_by_speed);
-
-	/* 2ppc boundary check */
-	if (target_clk * 2 > need_clk_by_rate && target_clk * 2 > need_clk_by_speed) {
-		info("pafstat pixel mode is set 2ppc\n");
-		pixel_mode = 0; /* 2ppc mode */
-	} else {
-		info("pafste pixel mode is set 4ppc\n");
-		pixel_mode = 1; /* 4ppc mode */
-	}
 	fimc_is_hw_set_field(base_reg, &pafstat_regs[PAFSTAT_R_CTX_LIC_4PPC],
-			&pafstat_fields[PAFSTAT_F_CTX_LIC_4PPC], pixel_mode);
+			&pafstat_fields[PAFSTAT_F_CTX_LIC_4PPC], pafstat_pixel_mode);
 
 	return 0;
 }
@@ -342,7 +331,7 @@ int pafstat_hw_g_fwin_stat(void __iomem *base_reg, void *buf, size_t len)
 	return fwin_stat_len;
 }
 
-int pafstat_hw_com_s_med_line(void __iomem *base_reg)
+int pafstat_hw_com_s_med_line(void __iomem *base_reg, int dist_pd_pixel)
 {
 	int tmp, med_line = 0, max_pos_end_y = 0;
 	int i;
@@ -362,8 +351,7 @@ int pafstat_hw_com_s_med_line(void __iomem *base_reg)
 			max_pos_end_y = tmp;
 	}
 
-	/* TODO: modify other pd mode support, 8 is for only MSPD */
-	med_line = max_pos_end_y * 8 + margin;
+	med_line = max_pos_end_y * dist_pd_pixel + margin;
 
 	fimc_is_hw_set_reg(base_reg,
 			&pafstat_regs[PAFSTAT_R_CTX_LINE_NUM_MED_INT], med_line);
@@ -380,7 +368,6 @@ void fimc_is_hw_paf_oneshot_enable(void __iomem *base_reg)
 			&pafstat_fields[PAFSTAT_F_CTX_ONESHOT], 1);
 	fimc_is_hw_set_field(base_reg, &pafstat_regs[PAFSTAT_R_CTX_GLOBAL_ENABLE],
 			&pafstat_fields[PAFSTAT_F_CTX_GLOBAL_ENABLE], 0);
-
 }
 
 void fimc_is_hw_paf_common_config(void __iomem *base_reg_com, void __iomem *base_reg, u32 paf_ch, u32 width, u32 height)
@@ -421,7 +408,8 @@ void fimc_is_hw_paf_rdma_reset(void __iomem *base_reg)
 		err("PAFSTAT RDMA reset fail\n");
 }
 
-void fimc_is_hw_paf_rdma_config(void __iomem *base_reg, u32 hw_format, u32 bitwidth, u32 width, u32 height)
+void fimc_is_hw_paf_rdma_config(void __iomem *base_reg, u32 hw_format, u32 bitwidth,
+		u32 width, u32 height, u32 pix_stride)
 {
 	enum pafstat_rdma_format dma_format = PAFSTAT_RDMA_FORMAT_12BIT_PACK_LSB_ALIGN;
 	u32 stride_size;
@@ -447,21 +435,21 @@ void fimc_is_hw_paf_rdma_config(void __iomem *base_reg, u32 hw_format, u32 bitwi
 	/* same as CSIS WDMA align */
 	switch (dma_format) {
 	case PAFSTAT_RDMA_FORMAT_8BIT_PACK:
-		stride_size = round_up(width, DMA_OUTPUT_BIT_WIDTH_16BIT);
+		stride_size = round_up(pix_stride, DMA_OUTPUT_BIT_WIDTH_16BIT);
 		break;
 	case PAFSTAT_RDMA_FORMAT_10BIT_PACK:
 	case PAFSTAT_RDMA_FORMAT_ANDROID10:
-		stride_size = round_up((width * 5 / 4), DMA_OUTPUT_BIT_WIDTH_16BIT);
+		stride_size = round_up((pix_stride * 5 / 4), DMA_OUTPUT_BIT_WIDTH_16BIT);
 		break;
 	case PAFSTAT_RDMA_FORMAT_12BIT_PACK_LSB_ALIGN:
 	case PAFSTAT_RDMA_FORMAT_12BIT_PACK_MSB_ALIGN:
-		stride_size = round_up((width * 3 / 2), DMA_OUTPUT_BIT_WIDTH_16BIT);
+		stride_size = round_up((pix_stride * 3 / 2), DMA_OUTPUT_BIT_WIDTH_16BIT);
 		break;
 	case PAFSTAT_RDMA_FORMAT_16BIT_PACK_LSB_ALIGN:
-		stride_size = round_up((width * 2), DMA_OUTPUT_BIT_WIDTH_16BIT);
+		stride_size = round_up((pix_stride * 2), DMA_OUTPUT_BIT_WIDTH_16BIT);
 		break;
 	default:
-		stride_size = round_up(width, DMA_OUTPUT_BIT_WIDTH_16BIT);
+		stride_size = round_up(pix_stride, DMA_OUTPUT_BIT_WIDTH_16BIT);
 		break;
 	}
 

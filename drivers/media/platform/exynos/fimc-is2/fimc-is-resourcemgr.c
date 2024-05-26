@@ -67,8 +67,12 @@
 #include "hardware/fimc-is-hw-control.h"
 #endif
 
-#ifdef CONFIG_SCHED_EHMP
-#include <linux/ehmp.h>
+#if defined(SECURE_CAMERA_FACE)
+#include <linux/ion_exynos.h>
+#endif
+
+#ifdef CONFIG_SCHED_EMS
+#include <linux/ems.h>
 struct gb_qos_request gb_req = {
 	.name = "camera_ehmp_boost",
 };
@@ -137,14 +141,14 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 	minfo->total_size += SIZE_LHFD_SHOT_BUF * MAX_LHFD_SHOT_BUF;
 #endif
 
-	minfo->pb_fw = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, minfo->total_size, 16, NULL);
+	minfo->pb_fw = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, minfo->total_size, NULL, 0);
 	if (IS_ERR(minfo->pb_fw)) {
 		err("failed to allocate buffer for FW");
 		return -ENOMEM;
 	}
 
 #if defined (ENABLE_FD_SW)
-	minfo->pb_lhfd = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, LHFD_MAP_SIZE, 16, NULL);
+	minfo->pb_lhfd = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, LHFD_MAP_SIZE, NULL, 0);
 	if (IS_ERR(minfo->pb_lhfd)) {
 		err("failed to allocate buffer for LHFD_MAP");
 		return -ENOMEM;
@@ -250,7 +254,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 
 	minfo->total_size = 0;
 	/* setfile */
-	minfo->pb_setfile = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, SETFILE_SIZE, 16, NULL);
+	minfo->pb_setfile = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, SETFILE_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_setfile)) {
 		err("failed to allocate buffer for SETFILE");
 		return -ENOMEM;
@@ -259,9 +263,9 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 
 	/* calibration data for each sensor postion */
 	for (i = 0; i < SENSOR_POSITION_MAX; i++) {
-		minfo->pb_cal[i] = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, TOTAL_CAL_DATA_SIZE, 16, NULL);
+		minfo->pb_cal[i] = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, CALDATA_SIZE, NULL, 0);
 		if (IS_ERR_OR_NULL(minfo->pb_cal[i])) {
-			err("failed to allocate buffer for REAR_CAL_DATA");
+			err("failed to allocate buffer for REAR_CALDATA");
 			return -ENOMEM;
 		}
 		minfo->total_size += minfo->pb_cal[i]->size;
@@ -271,7 +275,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 	minfo->pb_debug = mem->kmalloc(DEBUG_REGION_SIZE + 0x10, 16);
 	if (IS_ERR_OR_NULL(minfo->pb_debug)) {
 		/* retry by ION */
-		minfo->pb_debug = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, DEBUG_REGION_SIZE + 0x10, 16, NULL);
+		minfo->pb_debug = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, DEBUG_REGION_SIZE + 0x10, NULL, 0);
 		if (IS_ERR_OR_NULL(minfo->pb_debug)) {
 			err("failed to allocate buffer for DEBUG_REGION");
 			return -ENOMEM;
@@ -283,7 +287,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 	minfo->pb_event = mem->kmalloc(EVENT_REGION_SIZE + 0x10, 16);
 	if (IS_ERR_OR_NULL(minfo->pb_event)) {
 		/* retry by ION */
-		minfo->pb_event = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, EVENT_REGION_SIZE + 0x10, 16, NULL);
+		minfo->pb_event = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, EVENT_REGION_SIZE + 0x10, NULL, 0);
 		if (IS_ERR_OR_NULL(minfo->pb_event)) {
 			err("failed to allocate buffer for EVENT_REGION");
 			return -ENOMEM;
@@ -292,7 +296,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 	minfo->total_size += minfo->pb_event->size;
 
 	/* data region */
-	minfo->pb_dregion = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, DATA_REGION_SIZE, 16, NULL);
+	minfo->pb_dregion = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, DATA_REGION_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_dregion)) {
 		err("failed to allocate buffer for DATA_REGION");
 		return -ENOMEM;
@@ -301,7 +305,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 
 	/* parameter region */
 	minfo->pb_pregion = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
-						(FIMC_IS_SENSOR_COUNT*PARAM_REGION_SIZE), 16, NULL);
+						(FIMC_IS_STREAM_COUNT * PARAM_REGION_SIZE), NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_pregion)) {
 		err("failed to allocate buffer for PARAM_REGION");
 		return -ENOMEM;
@@ -309,7 +313,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 	minfo->total_size += minfo->pb_pregion->size;
 
 	/* fshared data region */
-	minfo->pb_fshared = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, FSHARED_REGION_SIZE, 16, NULL);
+	minfo->pb_fshared = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, FSHARED_REGION_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_fshared)) {
 		err("failed to allocate buffer for FSHARED_REGION");
 		return -ENOMEM;
@@ -318,7 +322,8 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 
 #if !defined(ENABLE_DYNAMIC_MEM)
 	/* 3aa/isp internal DMA buffer */
-	minfo->pb_taaisp = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, TAAISP_DMA_SIZE, 16, NULL);
+	minfo->pb_taaisp = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
+				TAAISP_DMA_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_taaisp)) {
 		err("failed to allocate buffer for TAAISP_DMA");
 		return -ENOMEM;
@@ -327,9 +332,23 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 
 	info("[RSC] TAAISP_DMA memory size (aligned) : %08lx\n", TAAISP_DMA_SIZE);
 
+	/* ME/DRC buffer */
+#if (MEDRC_DMA_SIZE > 0)
+	minfo->pb_medrc = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
+				MEDRC_DMA_SIZE, NULL, 0);
+	if (IS_ERR_OR_NULL(minfo->pb_medrc)) {
+		err("failed to allocate buffer for ME_DRC");
+		return -ENOMEM;
+	}
+
+	info("[RSC] ME_DRC memory size (aligned) : %08lx\n", MEDRC_DMA_SIZE);
+
+	minfo->total_size += minfo->pb_medrc->size;
+#endif
+
 #if defined(ENABLE_TNR)
 	/* TNR internal DMA buffer */
-	minfo->pb_tnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, tnr_size, 16, NULL);
+	minfo->pb_tnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, tnr_size, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_tnr)) {
 		err("failed to allocate buffer for TNR DMA");
 		return -ENOMEM;
@@ -338,22 +357,10 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 
 	info("[RSC] TNR_DMA memory size: %08lx\n", tnr_size);
 #endif
-
-#if defined (ENABLE_DNR_IN_MCSC)
-	minfo->pb_mcsc_dnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, MCSC_DNR_DMA_SIZE, 16, NULL);
-	if (IS_ERR_OR_NULL(minfo->pb_mcsc_dnr)) {
-		err("failed to allocate buffer for MCSC DNR");
-		return -ENOMEM;
-	}
-	minfo->total_size += minfo->pb_mcsc_dnr->size;
-
-	info("[RSC] TDNR_DMA memory size: %08lx\n", MCSC_DNR_DMA_SIZE);
-#endif
-
 #endif
 
 #if defined (ENABLE_FD_SW)
-	minfo->pb_lhfd = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, LHFD_MAP_SIZE, 16, NULL);
+	minfo->pb_lhfd = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, LHFD_MAP_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_lhfd)) {
 		err("failed to allocate buffer for LHFD_MAP");
 		return -ENOMEM;
@@ -362,12 +369,21 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 #endif
 
 #if defined (ENABLE_VRA)
-	minfo->pb_vra = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, VRA_DMA_SIZE, 16, NULL);
+	minfo->pb_vra = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, VRA_DMA_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_vra)) {
 		err("failed to allocate buffer for VRA");
 		return -ENOMEM;
 	}
 	minfo->total_size += minfo->pb_vra->size;
+#endif
+
+#if defined (ENABLE_DNR_IN_MCSC)
+	minfo->pb_mcsc_dnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, MCSC_DNR_DMA_SIZE, NULL, 0);
+	if (IS_ERR_OR_NULL(minfo->pb_mcsc_dnr)) {
+		err("failed to allocate buffer for MCSC DNR");
+		return -ENOMEM;
+	}
+	minfo->total_size += minfo->pb_mcsc_dnr->size;
 #endif
 
 #if defined (ENABLE_ODC)
@@ -380,7 +396,7 @@ static int fimc_is_resourcemgr_allocmem(struct fimc_is_resourcemgr *resourcemgr)
 	tpu_size += (SIZE_DNR_INTERNAL_BUF * NUM_DNR_INTERNAL_BUF);
 #endif
 	if (tpu_size > 0) {
-		minfo->pb_tpu = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, tpu_size, 16, NULL);
+		minfo->pb_tpu = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, tpu_size, NULL, 0);
 		if (IS_ERR_OR_NULL(minfo->pb_tpu)) {
 			err("failed to allocate buffer for TPU");
 			return -ENOMEM;
@@ -427,18 +443,6 @@ static int fimc_is_resourcemgr_initmem(struct fimc_is_resourcemgr *resourcemgr)
 	resourcemgr->minfo.dvaddr_region = CALL_BUFOP(minfo->pb_pregion, dvaddr, minfo->pb_pregion);
 	resourcemgr->minfo.kvaddr_region = CALL_BUFOP(minfo->pb_pregion, kvaddr, minfo->pb_pregion);
 
-#if !defined(ENABLE_DYNAMIC_MEM)
-	resourcemgr->minfo.dvaddr_taaisp = CALL_BUFOP(minfo->pb_taaisp, dvaddr, minfo->pb_taaisp);
-	resourcemgr->minfo.kvaddr_taaisp = CALL_BUFOP(minfo->pb_taaisp, kvaddr, minfo->pb_taaisp);
-
-#if defined(ENABLE_DNR_IN_MCSC)
-	resourcemgr->minfo.dvaddr_mcsc_dnr = CALL_BUFOP(minfo->pb_mcsc_dnr, dvaddr, minfo->pb_mcsc_dnr);
-	resourcemgr->minfo.kvaddr_mcsc_dnr = CALL_BUFOP(minfo->pb_mcsc_dnr, kvaddr, minfo->pb_mcsc_dnr);
-#else
-	resourcemgr->minfo.dvaddr_mcsc_dnr = 0;
-	resourcemgr->minfo.kvaddr_mcsc_dnr = 0;
-#endif
-#endif
 #if defined(ENABLE_FD_SW)
 	resourcemgr->minfo.dvaddr_lhfd = CALL_BUFOP(minfo->pb_lhfd, dvaddr, minfo->pb_lhfd);
 	resourcemgr->minfo.kvaddr_lhfd = CALL_BUFOP(minfo->pb_lhfd, kvaddr, minfo->pb_lhfd);
@@ -453,6 +457,14 @@ static int fimc_is_resourcemgr_initmem(struct fimc_is_resourcemgr *resourcemgr)
 #else
 	resourcemgr->minfo.dvaddr_vra = 0;
 	resourcemgr->minfo.kvaddr_vra = 0;
+#endif
+
+#if defined(ENABLE_DNR_IN_MCSC)
+	resourcemgr->minfo.dvaddr_mcsc_dnr = CALL_BUFOP(minfo->pb_mcsc_dnr, dvaddr, minfo->pb_mcsc_dnr);
+	resourcemgr->minfo.kvaddr_mcsc_dnr = CALL_BUFOP(minfo->pb_mcsc_dnr, kvaddr, minfo->pb_mcsc_dnr);
+#else
+	resourcemgr->minfo.dvaddr_mcsc_dnr = 0;
+	resourcemgr->minfo.kvaddr_mcsc_dnr = 0;
 #endif
 
 #if defined(ENABLE_ODC) || defined(ENABLE_VDIS) || defined(ENABLE_DNR_IN_TPU)
@@ -489,7 +501,8 @@ static int fimc_is_resourcemgr_alloc_dynamic_mem(struct fimc_is_resourcemgr *res
 #endif
 
 	/* 3aa/isp internal DMA buffer */
-	minfo->pb_taaisp = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, TAAISP_DMA_SIZE, 16, NULL);
+	minfo->pb_taaisp = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
+				TAAISP_DMA_SIZE, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_taaisp)) {
 		err("failed to allocate buffer for TAAISP_DMA memory");
 		return -ENOMEM;
@@ -497,11 +510,27 @@ static int fimc_is_resourcemgr_alloc_dynamic_mem(struct fimc_is_resourcemgr *res
 
 	info("[RSC] TAAISP_DMA memory size (aligned) : %08lx\n", TAAISP_DMA_SIZE);
 
+	/* ME/DRC buffer */
+#if (MEDRC_DMA_SIZE > 0)
+	minfo->pb_medrc = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
+				MEDRC_DMA_SIZE, NULL, 0);
+	if (IS_ERR_OR_NULL(minfo->pb_medrc)) {
+		CALL_VOID_BUFOP(minfo->pb_taaisp, free, minfo->pb_taaisp);
+		err("failed to allocate buffer for ME_DRC");
+		return -ENOMEM;
+	}
+
+	info("[RSC] ME_DRC memory size (aligned) : %08lx\n", MEDRC_DMA_SIZE);
+#endif
+
 #if defined(ENABLE_TNR)
 	/* TNR internal DMA buffer */
-	minfo->pb_tnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, tnr_size, 16, NULL);
+	minfo->pb_tnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, tnr_size, NULL, 0);
 	if (IS_ERR_OR_NULL(minfo->pb_tnr)) {
 		CALL_VOID_BUFOP(minfo->pb_taaisp, free, minfo->pb_taaisp);
+#if (MEDRC_DMA_SIZE > 0)
+			CALL_VOID_BUFOP(minfo->pb_medrc, free, minfo->pb_medrc);
+#endif
 		err("failed to allocate buffer for TNR DMA");
 		return -ENOMEM;
 	}
@@ -509,27 +538,15 @@ static int fimc_is_resourcemgr_alloc_dynamic_mem(struct fimc_is_resourcemgr *res
 	info("[RSC] TNR_DMA memory size: %08lx\n", tnr_size);
 #endif
 
-#if defined (ENABLE_DNR_IN_MCSC)
-	minfo->pb_mcsc_dnr = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, MCSC_DNR_DMA_SIZE, 16, NULL);
-	if (IS_ERR_OR_NULL(minfo->pb_mcsc_dnr)) {
-		CALL_VOID_BUFOP(minfo->pb_taaisp, free, minfo->pb_taaisp);
-#if defined(ENABLE_TNR)
-		CALL_VOID_BUFOP(minfo->pb_tnr, free, minfo->pb_tnr);
-#endif
-		err("failed to allocate buffer for MCSC DNR");
-		return -ENOMEM;
-	}
-
-	info("[RSC] TDNR_DMA memory size: %08lx\n", MCSC_DNR_DMA_SIZE);
-#endif
-
 	return 0;
 }
 
 static int fimc_is_resourcemgr_init_dynamic_mem(struct fimc_is_resourcemgr *resourcemgr)
 {
-	struct fimc_is_minfo *minfo = NULL;
+	struct fimc_is_minfo *minfo = &resourcemgr->minfo;
 	int ret = 0;
+	unsigned long kva;
+	dma_addr_t dva;
 
 	probe_info("fimc_is_init_mem - ION\n");
 
@@ -540,24 +557,24 @@ static int fimc_is_resourcemgr_init_dynamic_mem(struct fimc_is_resourcemgr *reso
 		goto p_err;
 	}
 
-	minfo = &resourcemgr->minfo;
+	kva = CALL_BUFOP(minfo->pb_taaisp, kvaddr, minfo->pb_taaisp);
+	dva = CALL_BUFOP(minfo->pb_taaisp, dvaddr, minfo->pb_taaisp);
+	info("[RSC] TAAISP_DMA memory kva:0x%1x, dva: %pad\n", kva, &dva);
 
-	resourcemgr->minfo.dvaddr_taaisp = CALL_BUFOP(minfo->pb_taaisp, dvaddr, minfo->pb_taaisp);
-	resourcemgr->minfo.kvaddr_taaisp = CALL_BUFOP(minfo->pb_taaisp, kvaddr, minfo->pb_taaisp);
-	info("[RSC] TAAISP_DMA memory kva(%#lx), dva(%#lx)\n",
-		resourcemgr->minfo.kvaddr_taaisp, resourcemgr->minfo.dvaddr_taaisp);
+#if (MEDRC_DMA_SIZE > 0)
+	kva = CALL_BUFOP(minfo->pb_medrc, kvaddr, minfo->pb_medrc);
+	dva = CALL_BUFOP(minfo->pb_medrc, dvaddr, minfo->pb_medrc);
+	info("[RSC] ME_DRC memory kva:0x%1x, dva: %pad\n", kva, &dva);
+#endif
 
-#if defined(ENABLE_DNR_IN_MCSC)
-	resourcemgr->minfo.dvaddr_mcsc_dnr = CALL_BUFOP(minfo->pb_mcsc_dnr, dvaddr, minfo->pb_mcsc_dnr);
-	resourcemgr->minfo.kvaddr_mcsc_dnr = CALL_BUFOP(minfo->pb_mcsc_dnr, kvaddr, minfo->pb_mcsc_dnr);
-	info("[RSC] MCSC_DNR_DMA memory kva(%#lx), dva(%#lx)\n",
-		resourcemgr->minfo.kvaddr_mcsc_dnr, resourcemgr->minfo.dvaddr_mcsc_dnr);
-#else
-	resourcemgr->minfo.dvaddr_mcsc_dnr = 0;
-	resourcemgr->minfo.kvaddr_mcsc_dnr = 0;
+#if defined(ENABLE_TNR)
+	kva = CALL_BUFOP(minfo->pb_tnr, kvaddr, minfo->pb_tnr);
+	dva = CALL_BUFOP(minfo->pb_tnr, dvaddr, minfo->pb_tnr);
+	info("[RSC] TNR_DMA memory kva:0x%1x, dva: %pad\n", kva, &dva);
 #endif
 
 	info("[RSC] %s done\n", __func__);
+
 p_err:
 	return ret;
 }
@@ -569,9 +586,8 @@ static int fimc_is_resourcemgr_deinit_dynamic_mem(struct fimc_is_resourcemgr *re
 #if defined(ENABLE_TNR)
 	CALL_VOID_BUFOP(minfo->pb_tnr, free, minfo->pb_tnr);
 #endif
-
-#if defined(ENABLE_DNR_IN_MCSC)
-	CALL_VOID_BUFOP(minfo->pb_mcsc_dnr, free, minfo->pb_mcsc_dnr);
+#if (MEDRC_DMA_SIZE > 0)
+		CALL_VOID_BUFOP(minfo->pb_medrc, free, minfo->pb_medrc);
 #endif
 	CALL_VOID_BUFOP(minfo->pb_taaisp, free, minfo->pb_taaisp);
 
@@ -586,7 +602,9 @@ static int fimc_is_resourcemgr_alloc_secure_mem(struct fimc_is_resourcemgr *reso
 	struct fimc_is_minfo *minfo = &resourcemgr->minfo;
 
 	/* 3aa/isp internal DMA buffer */
-	minfo->pb_taaisp_s = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, TAAISP_DMA_SIZE, 16, NULL);
+	minfo->pb_taaisp_s = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
+				TAAISP_DMA_SIZE, "camera_heap",
+				ION_FLAG_CACHED | ION_FLAG_PROTECTED);
 	if (IS_ERR_OR_NULL(minfo->pb_taaisp_s)) {
 		err("failed to allocate buffer for TAAISP_DMA_S");
 		return -ENOMEM;
@@ -594,12 +612,25 @@ static int fimc_is_resourcemgr_alloc_secure_mem(struct fimc_is_resourcemgr *reso
 
 	info("[RSC] TAAISP_DMA_S memory size (aligned) : %08lx\n", TAAISP_DMA_SIZE);
 
+	/* ME/DRC buffer */
+#if (MEDRC_DMA_SIZE > 0)
+	minfo->pb_medrc_s = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx,
+				MEDRC_DMA_SIZE, "secure_camera_heap",
+				ION_FLAG_CACHED | ION_FLAG_PROTECTED);
+	if (IS_ERR_OR_NULL(minfo->pb_medrc_s)) {
+		CALL_VOID_BUFOP(minfo->pb_taaisp_s, free, minfo->pb_taaisp_s);
+		err("failed to allocate buffer for ME_DRC_S");
+		return -ENOMEM;
+	}
+
+	info("[RSC] ME_DRC_S memory size (aligned) : %08lx\n", MEDRC_DMA_SIZE);
+#endif
+
 	return 0;
 }
 
 static int fimc_is_resourcemgr_init_secure_mem(struct fimc_is_resourcemgr *resourcemgr)
 {
-	struct fimc_is_minfo *minfo = NULL;
 	struct fimc_is_core *core;
 	int ret = 0;
 
@@ -618,13 +649,6 @@ static int fimc_is_resourcemgr_init_secure_mem(struct fimc_is_resourcemgr *resou
 		goto p_err;
 	}
 
-	minfo = &resourcemgr->minfo;
-
-	resourcemgr->minfo.dvaddr_taaisp_s = CALL_BUFOP(minfo->pb_taaisp_s, dvaddr, minfo->pb_taaisp_s);
-	resourcemgr->minfo.kvaddr_taaisp_s = CALL_BUFOP(minfo->pb_taaisp_s, kvaddr, minfo->pb_taaisp_s);
-	info("[RSC] TAAISP_DMA_S memory kva(%#lx), dva(%#lx)\n",
-		resourcemgr->minfo.kvaddr_taaisp_s, resourcemgr->minfo.dvaddr_taaisp_s);
-
 	info("[RSC] %s done\n", __func__);
 p_err:
 	return ret;
@@ -641,10 +665,11 @@ static int fimc_is_resourcemgr_deinit_secure_mem(struct fimc_is_resourcemgr *res
 
 	if (minfo->pb_taaisp_s)
 		CALL_VOID_BUFOP(minfo->pb_taaisp_s, free, minfo->pb_taaisp_s);
+	if (minfo->pb_medrc_s)
+		CALL_VOID_BUFOP(minfo->pb_medrc_s, free, minfo->pb_medrc_s);
 
 	minfo->pb_taaisp_s = NULL;
-	resourcemgr->minfo.dvaddr_taaisp_s = 0;
-	resourcemgr->minfo.kvaddr_taaisp_s = 0;
+	minfo->pb_medrc_s = NULL;
 
 	info("[RSC] %s done\n", __func__);
 
@@ -655,6 +680,9 @@ static int fimc_is_resourcemgr_deinit_secure_mem(struct fimc_is_resourcemgr *res
 static struct vm_struct fimc_is_lib_vm;
 static struct vm_struct fimc_is_heap_vm;
 static struct vm_struct fimc_is_heap_rta_vm;
+#ifdef CONFIG_UH_RKP
+static struct vm_struct fimc_lib_vm_for_rkp;
+#endif
 #if defined(RESERVED_MEM_IN_DT)
 static int fimc_is_rmem_device_init(struct reserved_mem *rmem,
 				    struct device *dev)
@@ -678,6 +706,11 @@ static int __init fimc_is_reserved_mem_setup(struct reserved_mem *rmem)
 	const __be32 *prop;
 	u64 kbase;
 	int len;
+#ifdef CONFIG_UH_RKP
+	u64 roundup_end_addr = 0;
+	rkp_dynamic_load_t rkp_dyn;
+	int ret;
+#endif
 
 	prop = of_get_flat_dt_prop(rmem->fdt_node, "kernel_virt", &len);
 	if (!prop) {
@@ -699,7 +732,24 @@ static int __init fimc_is_reserved_mem_setup(struct reserved_mem *rmem)
 
 	BUG_ON(rmem->size < LIB_SIZE);
 
+#ifdef CONFIG_UH_RKP
+	memcpy(&fimc_lib_vm_for_rkp, &fimc_is_lib_vm, sizeof(struct vm_struct));
+
+	roundup_end_addr = (u64)roundup((u64)fimc_is_lib_vm.addr + (u64)fimc_is_lib_vm.size, SECTION_SIZE);
+	fimc_lib_vm_for_rkp.addr = (void *)rounddown((u64)fimc_lib_vm_for_rkp.addr, SECTION_SIZE);
+	fimc_lib_vm_for_rkp.size = roundup_end_addr - (u64)fimc_lib_vm_for_rkp.addr;
+
+	rkp_dyn.binary_base = fimc_is_lib_vm.phys_addr;
+	rkp_dyn.binary_size = LIB_SIZE;
+	rkp_dyn.type = RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT;
+	ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT,(u64)&rkp_dyn, 0, 0);
+	if (ret) {
+		err_lib("fail to break-before-init FIMC in EL2");
+	}
+	vm_area_add_early(&fimc_lib_vm_for_rkp);
+#else
 	vm_area_add_early(&fimc_is_lib_vm);
+#endif
 
 	probe_info("fimc-is library memory: 0x%llx\n", kbase);
 
@@ -719,6 +769,11 @@ RESERVEDMEM_OF_DECLARE(fimc_is_lib, "exynos,fimc_is_lib", fimc_is_reserved_mem_s
 static int __init fimc_is_lib_mem_alloc(char *str)
 {
 	ulong addr = 0;
+#ifdef CONFIG_UH_RKP
+	u64 roundup_end_addr = 0;
+	rkp_dynamic_load_t rkp_dyn;
+	int ret;
+#endif
 
 	if (kstrtoul(str, 0, (ulong *)&addr) || !addr) {
 		probe_warn("invalid fimc-is library memory address, use default");
@@ -729,11 +784,28 @@ static int __init fimc_is_lib_mem_alloc(char *str)
 		probe_warn("use different address [reserve-fimc=0x%lx default:0x%lx]",
 				addr, __LIB_START);
 
-	fimc_is_lib_vm.phys_addr = memblock_alloc(LIB_SIZE, SZ_4K);
+	fimc_is_lib_vm.phys_addr = memblock_alloc(LIB_SIZE, SZ_2M);
 	fimc_is_lib_vm.addr = (void *)addr;
 	fimc_is_lib_vm.size = LIB_SIZE + PAGE_SIZE;
+#ifdef CONFIG_UH_RKP
+	memcpy(&fimc_lib_vm_for_rkp, &fimc_is_lib_vm, sizeof(struct vm_struct));
 
+	roundup_end_addr = (u64)roundup((u64)fimc_is_lib_vm.addr + (u64)fimc_is_lib_vm.size, SECTION_SIZE);
+	fimc_lib_vm_for_rkp.addr = (void *)rounddown((u64)fimc_lib_vm_for_rkp.addr, SECTION_SIZE);
+	fimc_lib_vm_for_rkp.size = roundup_end_addr - (u64)fimc_lib_vm_for_rkp.addr;
+
+	rkp_dyn.binary_base = fimc_is_lib_vm.phys_addr;
+	rkp_dyn.binary_size = LIB_SIZE;
+	rkp_dyn.type = RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT;
+	ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_BREAKDOWN_BEFORE_INIT, (u64)&rkp_dyn, 0, 0);
+	if (ret) {
+		err_lib("fail to break-before-init FIMC in EL2");
+	}
+	vm_area_add_early(&fimc_lib_vm_for_rkp);
+	// vm_area_add_early(&fimc_is_lib_vm);
+#else
 	vm_area_add_early(&fimc_is_lib_vm);
+#endif
 
 	probe_info("fimc-is library memory: 0x%lx\n", addr);
 
@@ -756,11 +828,18 @@ static int __init fimc_is_lib_mem_alloc(char *str)
 __setup("reserve-fimc=", fimc_is_lib_mem_alloc);
 #endif
 
-static int fimc_is_lib_mem_map(void)
+static int __init fimc_is_lib_mem_map(void)
 {
 	int page_size, i;
 	struct page *page;
 	struct page **pages;
+	pgprot_t prot;
+
+#ifdef CONFIG_UH_RKP
+	prot = PAGE_KERNEL_RKP_RO;
+#else
+	prot = PAGE_KERNEL;
+#endif
 
 	if (!fimc_is_lib_vm.phys_addr) {
 		probe_err("There is no reserve-fimc= at bootargs.");
@@ -774,7 +853,7 @@ static int fimc_is_lib_mem_map(void)
 	for (i = 0; i < page_size; i++)
 		pages[i] = page++;
 
-	if (map_vm_area(&fimc_is_lib_vm, PAGE_KERNEL, pages)) {
+	if (map_vm_area(&fimc_is_lib_vm, prot, pages)) {
 		probe_err("failed to mapping between virt and phys for binary");
 		vunmap(fimc_is_lib_vm.addr);
 		kfree(pages);
@@ -786,7 +865,7 @@ static int fimc_is_lib_mem_map(void)
 	return 0;
 }
 
-static int fimc_is_heap_mem_map(struct fimc_is_resourcemgr *resourcemgr,
+static int __init fimc_is_heap_mem_map(struct fimc_is_resourcemgr *resourcemgr,
 	struct vm_struct *vm, int heap_size)
 {
 	struct fimc_is_mem *mem = &resourcemgr->mem;
@@ -798,7 +877,7 @@ static int fimc_is_heap_mem_map(struct fimc_is_resourcemgr *resourcemgr,
 	struct page **pages = vmalloc(sizeof(struct page *) * npages);
 	struct page **tmp = pages;
 
-	pb = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, heap_size, 16, NULL);
+	pb = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, heap_size, NULL, 0);
 	if (IS_ERR_OR_NULL(pb)) {
 		err("failed to allocate buffer for HEAP");
 		vfree(pages);
@@ -1152,29 +1231,20 @@ static int fimc_is_reboot_handler(struct notifier_block *nb, ulong l,
 {
 	struct fimc_is_core *core = NULL;
 
-	info("%s:++\n", __func__);
+	info("%s enter\n", __func__);
 
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
-	if (!core)
-		goto exit;
+	if (core)
+		fimc_is_cleanup(core);
 
-	fimc_is_cleanup(core);
-exit:
-	info("%s:--\n", __func__);
+	info("%s exit\n", __func__);
+
 	return 0;
 }
 
 static struct notifier_block notify_reboot_block = {
 	.notifier_call = fimc_is_reboot_handler,
 };
-#endif
-
-#if defined(CONFIG_SOC_EXYNOS9610)
-static void fimc_is_resourcemgr_c2_disable_work(struct work_struct *data)
-{
-	info("%s: call cpuidle_pause()\n", __func__);
-	cpuidle_pause();
-}
 #endif
 
 int fimc_is_resourcemgr_probe(struct fimc_is_resourcemgr *resourcemgr,
@@ -1220,7 +1290,6 @@ int fimc_is_resourcemgr_probe(struct fimc_is_resourcemgr *resourcemgr,
 	resourcemgr->tmu_notifier.priority = 0;
 	resourcemgr->tmu_state = ISP_NORMAL;
 	resourcemgr->limited_fps = 0;
-	resourcemgr->throttling_bts = false;
 
 	/* bus monitor unit */
 
@@ -1302,10 +1371,6 @@ int fimc_is_resourcemgr_probe(struct fimc_is_resourcemgr *resourcemgr,
 	mutex_init(&resourcemgr->global_param.lock);
 	resourcemgr->global_param.video_mode = 0;
 	resourcemgr->global_param.state = 0;
-
-#if defined(CONFIG_SOC_EXYNOS9610)
-	INIT_WORK(&resourcemgr->c2_disable_work, fimc_is_resourcemgr_c2_disable_work);
-#endif
 
 p_err:
 	probe_info("[RSC] %s(%d)\n", __func__, ret);
@@ -1429,10 +1494,8 @@ int fimc_is_resource_get(struct fimc_is_resourcemgr *resourcemgr, u32 rsc_type)
 		struct fimc_is_resource *resource_ischain;
 		resource_ischain = GET_RESOURCE(resourcemgr, RESOURCE_TYPE_ISCHAIN);
 		if ((rsc_type != RESOURCE_TYPE_ISCHAIN)	&& rsccount == 1) {
-			if (atomic_read(&resource_ischain->rsccount) == 1) {
+			if (atomic_read(&resource_ischain->rsccount) == 1)
 				fimc_is_kernel_log_dump(false);
-				BUG_ON(1);
-			}
 		}
 	}
 #endif
@@ -1486,10 +1549,6 @@ int fimc_is_resource_get(struct fimc_is_resourcemgr *resourcemgr, u32 rsc_type)
 			err("fimc_is_resourcemgr_initmem is fail(%d)\n", ret);
 			goto p_err;
 		}
-#endif
-#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
-		exynos_bcm_dbg_start();
-		dbgd_resource("exynos bcm debug was started\n");
 #endif
 	}
 
@@ -1601,14 +1660,10 @@ int fimc_is_resource_get(struct fimc_is_resourcemgr *resourcemgr, u32 rsc_type)
 			set_bit(FIMC_IS_RM_ISC_POWER_ON, &resourcemgr->state);
 			set_bit(FIMC_IS_RM_POWER_ON, &resourcemgr->state);
 
-#if defined(CONFIG_SOC_EXYNOS8895) || defined(CONFIG_SOC_EXYNOS9610)
-			/* HACK for 8895, cpuidle on/off */
-#if defined(CONFIG_SOC_EXYNOS9610)
-			schedule_work(&resourcemgr->c2_disable_work);
-#else
+#if defined(CONFIG_SOC_EXYNOS8895) || defined(DISABLE_CORE_IDLE_STATE)
+			/* CPU idle on/off */
 			info("%s: call cpuidle_pause()\n", __func__);
 			cpuidle_pause();
-#endif
 #endif
 
 #ifdef CONFIG_EXYNOS_BTS
@@ -1635,6 +1690,11 @@ int fimc_is_resource_get(struct fimc_is_resourcemgr *resourcemgr, u32 rsc_type)
 				goto p_err;
 			}
 			TIME_LAUNCH_END(LAUNCH_DDK_LOAD);
+
+#ifdef CONFIG_EXYNOS_BCM_DBG_GNR
+		exynos_bcm_dbg_start();
+		dbgd_resource("exynos bcm debug was started\n");
+#endif
 		}
 #endif
 		fimc_is_vender_resource_get(&core->vender);
@@ -1791,12 +1851,9 @@ int fimc_is_resource_put(struct fimc_is_resourcemgr *resourcemgr, u32 rsc_type)
 
 			clear_bit(FIMC_IS_RM_ISC_POWER_ON, &resourcemgr->state);
 
-#if defined(CONFIG_SOC_EXYNOS8895) || defined(CONFIG_SOC_EXYNOS9610)
-			/* HACK for 8895, cpuidle on/off */
+#if defined(CONFIG_SOC_EXYNOS8895) || defined(DISABLE_CORE_IDLE_STATE)
+			/* CPU idle on/off */
 			info("%s: call cpuidle_resume()\n", __func__);
-#if defined(CONFIG_SOC_EXYNOS9610)
-			flush_work(&resourcemgr->c2_disable_work);
-#endif
 			cpuidle_resume();
 #endif
 
@@ -1804,8 +1861,6 @@ int fimc_is_resource_put(struct fimc_is_resourcemgr *resourcemgr, u32 rsc_type)
 			info("%s: call bts_update_scen(0)\n", __func__);
 			bts_update_scen(BS_CAMERA_DEFAULT, 0);
 			bts_update_scen(BS_FHD_480_ENCODING, 0);
-
-			fimc_is_hw_set_bts_ext_ctrl(BTS_SCN_THERMAL, false);
 #endif
 			break;
 		}

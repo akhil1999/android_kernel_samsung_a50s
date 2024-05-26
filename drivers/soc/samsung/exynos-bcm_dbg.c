@@ -35,8 +35,12 @@
 #ifdef	CONFIG_EXYNOS_ITMON
 #include <soc/samsung/exynos-itmon.h>
 #endif
-
+#ifdef CONFIG_UH_RKP
+struct exynos_bcm_dbg_data *bcm_dbg_data;
+EXPORT_SYMBOL(bcm_dbg_data);
+#else
 static struct exynos_bcm_dbg_data *bcm_dbg_data;
+#endif
 #ifdef CONFIG_EXYNOS_BCM_DBG_GNR
 static void *bcm_addr;
 static struct bin_system_func *bin_func;
@@ -87,7 +91,7 @@ static int exynos_bcm_is_running(unsigned int run_state)
 	return 0;
 }
 
-static int __nocfi __exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
+static int __exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
 				struct exynos_bcm_dbg_data *data,
 				unsigned int *cmd)
 {
@@ -3129,7 +3133,7 @@ err_parse_dt:
 }
 
 #ifdef CONFIG_EXYNOS_BCM_DBG_GNR
-static enum hrtimer_restart __nocfi bcm_monitor(struct hrtimer *hrtimer)
+static enum hrtimer_restart bcm_monitor(struct hrtimer *hrtimer)
 {
 	unsigned long flags;
 	u32 period;
@@ -3161,70 +3165,13 @@ static void __iomem *bcm_ioremap(phys_addr_t phys_addr, size_t size)
 	return ret;
 }
 
-struct page_change_data {
-	pgprot_t set_mask;
-	pgprot_t clear_mask;
-};
-
-static int bcm_change_page_range(pte_t *ptep, pgtable_t token, unsigned long addr,
-			void *data)
-{
-	struct page_change_data *cdata = data;
-	pte_t pte = *ptep;
-
-	pte = clear_pte_bit(pte, cdata->clear_mask);
-	pte = set_pte_bit(pte, cdata->set_mask);
-
-	set_pte(ptep, pte);
-	return 0;
-}
-
-static int bcm_change_memory_common(unsigned long addr, int numpages,
-				pgprot_t set_mask, pgprot_t clear_mask)
-{
-	unsigned long start = addr;
-	unsigned long size = PAGE_SIZE * numpages;
-	unsigned long end = start + size;
-	int ret;
-	struct page_change_data data;
-
-	if (!PAGE_ALIGNED(addr)) {
-		start &= PAGE_MASK;
-		end = start + size;
-		WARN_ON_ONCE(1);
-	}
-
-	if (!numpages)
-		return 0;
-
-	data.set_mask = set_mask;
-	data.clear_mask = clear_mask;
-
-	ret = apply_to_page_range(&init_mm, start, size, bcm_change_page_range,
-					&data);
-
-	flush_tlb_kernel_range(start, end);
-	return ret;
-}
-
-int __nocfi exynos_bcm_dbg_load_bin(void)
+int exynos_bcm_dbg_load_bin(void)
 {
 	int ret = 0;
-	struct file *fp = NULL;
-	long fsize, nread;
-	u8 *buf = NULL;
 	char *lib_bcm = NULL;
-	mm_segment_t old_fs;
 
 	if (bcm_dbg_data->bcm_load_bin)
 		return 0;
-
-	ret = bcm_change_memory_common((unsigned long)bcm_addr,
-				BCM_BIN_SIZE, __pgprot(0), __pgprot(PTE_PXN));
-	if (ret) {
-		BCM_ERR("%s: failed to change memory common\n", __func__);
-		goto err_out;
-	}
 
 	os_func.print = printk;
 	os_func.snprint = snprintf;
@@ -3232,41 +3179,7 @@ int __nocfi exynos_bcm_dbg_load_bin(void)
 	os_func.iounmap = iounmap;
 	os_func.sched_clock = sched_clock;
 
-	old_fs = get_fs();
-	set_fs(KERNEL_DS);
-	fp = filp_open(BCM_BIN_NAME, O_RDONLY, 0);
-	if (IS_ERR(fp)) {
-		BCM_ERR("%s: filp_open fail!!\n", __func__);
-		ret = -EIO;
-		goto err_fopen;
-	}
-
-	fsize = BCM_BIN_SIZE;
-	BCM_INFO("%s: start, file path %s, size %ld Bytes\n",
-			__func__, BCM_BIN_NAME, fsize);
-	buf = vmalloc(fsize);
-	if (!buf) {
-		BCM_ERR("%s: failed to allocate memory\n", __func__);
-		ret = -ENOMEM;
-		goto err_alloc;
-	}
-
-	nread = vfs_read(fp, (char __user *)buf, fsize, &fp->f_pos);
-	if (nread != fsize) {
-		BCM_ERR("%s: failed to read firmware file, %ld Bytes\n",
-				__func__, nread);
-		ret = -EIO;
-		goto err_vfs_read;
-	}
-
 	lib_bcm = (char *)bcm_addr;
-	memset((char *)bcm_addr, 0x0, BCM_BIN_SIZE);
-
-	flush_icache_range((unsigned long)lib_bcm,
-			   (unsigned long)lib_bcm + BCM_BIN_SIZE);
-	memcpy((void *)lib_bcm, (void *)buf, fsize);
-	flush_cache_all();
-
 	bin_func = ((start_up_func_t)lib_bcm)((void **)&os_func);
 
 	bcm_dbg_data->bcm_load_bin = true;
@@ -3281,13 +3194,6 @@ int __nocfi exynos_bcm_dbg_load_bin(void)
 	}
 
 err_init:
-err_vfs_read:
-	vfree((void *)buf);
-err_alloc:
-	filp_close(fp, NULL);
-err_fopen:
-	set_fs(old_fs);
-err_out:
 	return ret;
 }
 EXPORT_SYMBOL(exynos_bcm_dbg_load_bin);

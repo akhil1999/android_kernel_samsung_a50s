@@ -13,9 +13,9 @@
 #include <linux/gpio.h>
 
 /* switch device header */
-#ifdef CONFIG_ANDROID_SWITCH
-#include "../staging/android/switch/switch.h"
-#endif /* CONFIG_ANDROID_SWITCH */
+#ifdef CONFIG_SWITCH
+#include <linux/switch.h>
+#endif /* CONFIG_SWITCH */
 
 #if defined(CONFIG_USE_SAFEOUT)
 #include <linux/regulator/consumer.h>
@@ -49,10 +49,10 @@
 #endif /* CONFIG_MUIC_NOTIFIER */
 
 #if defined(CONFIG_MUIC_SUPPORT_CCIC) && defined(CONFIG_CCIC_NOTIFIER)
-#include <linux/ccic/ccic_notifier.h>
+#include <linux/usb/typec/pdic_notifier.h>
 #endif
 
-#ifdef CONFIG_ANDROID_SWITCH
+#ifdef CONFIG_SWITCH
 static struct switch_dev switch_dock = {
 	.name = "dock",
 };
@@ -66,7 +66,7 @@ struct switch_dev switch_attached_muic_cable = {
 	.name = "attached_muic_cable", /* sys/class/switch/attached_muic_cable/state */
 };
 #endif
-#endif /* CONFIG_ANDROID_SWITCH */
+#endif /* CONFIG_SWITCH */
 
 #if defined(CONFIG_MUIC_NOTIFIER)
 static struct notifier_block dock_notifier_block;
@@ -75,7 +75,7 @@ static struct notifier_block cable_data_notifier_block;
 void muic_send_dock_intent(int type)
 {
 	pr_info("%s: MUIC dock type(%d)\n", __func__, type);
-#ifdef CONFIG_ANDROID_SWITCH
+#ifdef CONFIG_SWITCH
 	switch_set_state(&switch_dock, type);
 #endif
 }
@@ -84,7 +84,7 @@ void muic_send_dock_intent(int type)
 void muic_send_attached_muic_cable_intent(int type)
 {
 	pr_info("%s: MUIC attached_muic_cable type(%d)\n", __func__, type);
-#ifdef CONFIG_ANDROID_SWITCH
+#ifdef CONFIG_SWITCH
 	switch_set_state(&switch_attached_muic_cable, type);
 #endif
 }
@@ -231,7 +231,7 @@ static int muic_handle_cable_data_notification(struct notifier_block *nb,
 	}
 
 	pr_info("%s: MUIC uart type(%d)\n", __func__, jig_state);
-#ifdef CONFIG_ANDROID_SWITCH
+#ifdef CONFIG_SWITCH
 	switch_set_state(&switch_uart3, jig_state);
 #endif
 	return NOTIFY_DONE;
@@ -299,7 +299,7 @@ err:
 
 static void muic_init_switch_dev_cb(void)
 {
-#ifdef CONFIG_ANDROID_SWITCH
+#ifdef CONFIG_SWITCH
 	int ret;
 
 	/* for DockObserver */
@@ -327,7 +327,7 @@ static void muic_init_switch_dev_cb(void)
 		return;
 	}
 #endif
-#endif /* CONFIG_ANDROID_SWITCH */
+#endif /* CONFIG_SWITCH */
 
 #if defined(CONFIG_MUIC_NOTIFIER)
 	muic_notifier_register(&dock_notifier_block,
@@ -341,7 +341,7 @@ static void muic_init_switch_dev_cb(void)
 
 static void muic_cleanup_switch_dev_cb(void)
 {
-#ifdef CONFIG_ANDROID_SWITCH
+#ifdef CONFIG_SWITCH
 #ifdef CONFIG_SEC_FACTORY
 	/* for cable type event */
 	switch_dev_unregister(&switch_attached_muic_cable);
@@ -350,7 +350,7 @@ static void muic_cleanup_switch_dev_cb(void)
 	switch_dev_unregister(&switch_uart3);
 	/* for DockObserver */
 	switch_dev_unregister(&switch_dock);
-#endif /* CONFIG_ANDROID_SWITCH */
+#endif /* CONFIG_SWITCH */
 #if defined(CONFIG_MUIC_NOTIFIER)
 	muic_notifier_unregister(&dock_notifier_block);
 	muic_notifier_unregister(&cable_data_notifier_block);
