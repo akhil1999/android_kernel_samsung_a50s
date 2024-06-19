@@ -17,10 +17,12 @@
 #include <linux/of_reserved_mem.h>
 #include <linux/pm_runtime.h>
 #include <linux/sched/clock.h>
-#include <linux/mm_types.h>
-#include <asm/cacheflush.h>
 #include "abox_dbg.h"
 #include "abox_gic.h"
+
+#define ABOX_DBG_DUMP_MAGIC_SRAM	0x3935303030504D44ull /* DMP00059 */
+#define ABOX_DBG_DUMP_MAGIC_DRAM	0x3231303038504D44ull /* DMP80012 */
+#define ABOX_DBG_DUMP_MAGIC_SFR		0x5246533030504D44ull /* DMP00SFR */
 
 static struct dentry *abox_dbg_root_dir __read_mostly;
 
@@ -74,26 +76,39 @@ void abox_dbg_print_gpr(struct device *dev, struct abox_data *data)
 	dev_info(dev, "========================================\n");
 }
 
+struct abox_dbg_dump_sram {
+	unsigned long long magic;
+	char dump[SZ_512K];
+} __packed;
+
+struct abox_dbg_dump_dram {
+	unsigned long long magic;
+	char dump[DRAM_FIRMWARE_SIZE];
+} __packed;
+
+struct abox_dbg_dump_sfr {
+	unsigned long long magic;
+	u32 dump[SZ_64K / sizeof(u32)];
+} __packed;
+
 struct abox_dbg_dump {
-	char sram[SZ_512K];
-	char dram[DRAM_FIRMWARE_SIZE];
-	u32 sfr[SZ_64K / sizeof(u32)];
+	struct abox_dbg_dump_sram sram;
+	struct abox_dbg_dump_dram dram;
+	struct abox_dbg_dump_sfr sfr;
 	u32 sfr_gic_gicd[SZ_4K / sizeof(u32)];
 	unsigned int gpr[17];
 	long long time;
 	char reason[SZ_32];
-};
+} __packed;
 
 struct abox_dbg_dump_min {
-	char sram[SZ_512K];
-	void *dram;
-	struct page **pages;
-	u32 sfr[SZ_64K / sizeof(u32)];
+	struct abox_dbg_dump_sram sram;
+	struct abox_dbg_dump_sfr sfr;
 	u32 sfr_gic_gicd[SZ_4K / sizeof(u32)];
 	unsigned int gpr[17];
 	long long time;
 	char reason[SZ_32];
-};
+} __packed;
 
 static struct abox_dbg_dump (*p_abox_dbg_dump)[ABOX_DBG_DUMP_COUNT];
 static struct abox_dbg_dump_min (*p_abox_dbg_dump_min)[ABOX_DBG_DUMP_COUNT];
@@ -113,39 +128,6 @@ static int __init abox_rmem_setup(struct reserved_mem *rmem)
 }
 
 RESERVEDMEM_OF_DECLARE(abox_rmem, "exynos,abox_rmem", abox_rmem_setup);
-
-static void *abox_dbg_alloc_mem_atomic(struct device *dev, struct abox_dbg_dump_min *p_dump)
-{
-	int i, j;
-	int npages = DRAM_FIRMWARE_SIZE / PAGE_SIZE;
-	struct page **tmp;
-	gfp_t alloc_gfp_flag = GFP_ATOMIC;
-
-	p_dump->pages = kzalloc(sizeof(struct page *) * npages, alloc_gfp_flag);
-	if (!p_dump->pages) {
-		dev_info(dev, "Failed to allocate array of struct pages\n");
-		return NULL;
-	}
-
-	tmp = p_dump->pages;
-	for (i = 0; i < npages; i++, tmp++) {
-		*tmp = alloc_page(alloc_gfp_flag);
-		if (*tmp == NULL) {
-			pr_err("Failed to allocate pages for abox debug\n");
-			goto free_pg;
-		}
-	}
-
-	return vm_map_ram(p_dump->pages, npages, -1, PAGE_KERNEL);
-
-free_pg:
-	tmp = p_dump->pages;
-	for (j = 0; j < i; j++, tmp++)
-		__free_pages(*tmp, 0);
-	kfree(p_dump->pages);
-	p_dump->pages = NULL;
-	return NULL;
-}
 
 void abox_dbg_dump_gpr_from_addr(struct device *dev, unsigned int *addr,
 		enum abox_dbg_dump_src src, const char *reason)
@@ -228,28 +210,29 @@ void abox_dbg_dump_mem(struct device *dev, struct abox_data *data,
 
 		p_dump->time = sched_clock();
 		strncpy(p_dump->reason, reason, sizeof(p_dump->reason) - 1);
-		memcpy_fromio(p_dump->sram, data->sram_base, data->sram_size);
-		memcpy(p_dump->dram, data->dram_base, sizeof(p_dump->dram));
-		memcpy_fromio(p_dump->sfr, data->sfr_base, sizeof(p_dump->sfr));
+		memcpy_fromio(p_dump->sram.dump, data->sram_base,
+				data->sram_size);
+		p_dump->sram.magic = ABOX_DBG_DUMP_MAGIC_SRAM;
+		memcpy(p_dump->dram.dump, data->dram_base, DRAM_FIRMWARE_SIZE);
+		p_dump->dram.magic = ABOX_DBG_DUMP_MAGIC_DRAM;
+		memcpy_fromio(p_dump->sfr.dump, data->sfr_base,
+				sizeof(p_dump->sfr.dump));
+		p_dump->sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
 		memcpy_fromio(p_dump->sfr_gic_gicd, gic_data->gicd_base,
 				sizeof(p_dump->sfr_gic_gicd));
 	} else if (p_abox_dbg_dump_min) {
 		struct abox_dbg_dump_min *p_dump = &(*p_abox_dbg_dump_min)[src];
+
 		p_dump->time = sched_clock();
 		strncpy(p_dump->reason, reason, sizeof(p_dump->reason) - 1);
-		memcpy_fromio(p_dump->sram, data->sram_base, data->sram_size);
-		memcpy_fromio(p_dump->sfr, data->sfr_base, sizeof(p_dump->sfr));
+		memcpy_fromio(p_dump->sram.dump, data->sram_base,
+				data->sram_size);
+		p_dump->sram.magic = ABOX_DBG_DUMP_MAGIC_SRAM;
+		memcpy_fromio(p_dump->sfr.dump, data->sfr_base,
+				sizeof(p_dump->sfr.dump));
+		p_dump->sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
 		memcpy_fromio(p_dump->sfr_gic_gicd, gic_data->gicd_base,
 				sizeof(p_dump->sfr_gic_gicd));
-		if (!p_dump->dram)
-			p_dump->dram = abox_dbg_alloc_mem_atomic(dev, p_dump);
-
-		if (!IS_ERR_OR_NULL(p_dump->dram)) {
-			memcpy(p_dump->dram, data->dram_base, DRAM_FIRMWARE_SIZE);
-			flush_cache_all();
-		} else {
-			dev_info(dev, "Failed to save ABOX dram\n");
-		}
 	}
 }
 
@@ -261,8 +244,8 @@ void abox_dbg_dump_gpr_mem(struct device *dev, struct abox_data *data,
 }
 
 struct abox_dbg_dump_simple {
-	char sram[SZ_512K];
-	u32 sfr[SZ_64K / sizeof(u32)];
+	struct abox_dbg_dump_sram sram;
+	struct abox_dbg_dump_sfr sfr;
 	u32 sfr_gic_gicd[SZ_4K / sizeof(u32)];
 	unsigned int gpr[17];
 	long long time;
@@ -291,9 +274,12 @@ void abox_dbg_dump_simple(struct device *dev, struct abox_data *data,
 		abox_dump_simple.gpr[i] = readl(data->sfr_base + ABOX_CPU_R(i));
 	abox_dump_simple.gpr[i++] = readl(data->sfr_base + ABOX_CPU_PC);
 	abox_dump_simple.gpr[i++] = readl(data->sfr_base + ABOX_CPU_L2C_STATUS);
-	memcpy_fromio(abox_dump_simple.sram, data->sram_base, data->sram_size);
-	memcpy_fromio(abox_dump_simple.sfr, data->sfr_base,
-			sizeof(abox_dump_simple.sfr));
+	memcpy_fromio(abox_dump_simple.sram.dump, data->sram_base,
+			data->sram_size);
+	abox_dump_simple.sram.magic = ABOX_DBG_DUMP_MAGIC_SRAM;
+	memcpy_fromio(abox_dump_simple.sfr.dump, data->sfr_base,
+			sizeof(abox_dump_simple.sfr.dump));
+	abox_dump_simple.sfr.magic = ABOX_DBG_DUMP_MAGIC_SFR;
 	memcpy_fromio(abox_dump_simple.sfr_gic_gicd, gic_data->gicd_base,
 			sizeof(abox_dump_simple.sfr_gic_gicd));
 }
@@ -357,12 +343,21 @@ static ssize_t calliope_dram_read(struct file *file, struct kobject *kobj,
 	return size;
 }
 
+static ssize_t calliope_priv_read(struct file *file, struct kobject *kobj,
+		struct bin_attribute *battr, char *buf,
+		loff_t off, size_t size)
+{
+	return calliope_dram_read(file, kobj, battr, buf, off, size);
+}
+
 /* size will be updated later */
 static BIN_ATTR_RO(calliope_sram, 0);
 static BIN_ATTR_RO(calliope_dram, DRAM_FIRMWARE_SIZE);
+static BIN_ATTR_RO(calliope_priv, PRIVATE_SIZE);
 static struct bin_attribute *calliope_bin_attrs[] = {
 	&bin_attr_calliope_sram,
 	&bin_attr_calliope_dram,
+	&bin_attr_calliope_priv,
 };
 
 static ssize_t gpr_show(struct device *dev,
@@ -418,11 +413,11 @@ static int samsung_abox_debug_probe(struct platform_device *pdev)
 			abox_rmem->size, 0);
 	data->dump_base = phys_to_virt(abox_rmem->base);
 	data->dump_base_phys = abox_rmem->base;
-	memset(data->dump_base, 0x0, abox_rmem->size);
 	ret = device_create_file(dev, &dev_attr_gpr);
 	bin_attr_calliope_sram.size = data->sram_size;
 	bin_attr_calliope_sram.private = data->sram_base;
 	bin_attr_calliope_dram.private = data->dram_base;
+	bin_attr_calliope_priv.private = data->priv_base;
 	for (i = 0; i < ARRAY_SIZE(calliope_bin_attrs); i++) {
 		struct bin_attribute *battr = calliope_bin_attrs[i];
 
@@ -438,24 +433,8 @@ static int samsung_abox_debug_probe(struct platform_device *pdev)
 static int samsung_abox_debug_remove(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
-	int i;
 
 	dev_dbg(dev, "%s\n", __func__);
-	for (i = 0; i < ABOX_DBG_DUMP_COUNT; i++) {
-		struct page **tmp = p_abox_dbg_dump_min[i]->pages;
-
-		if (p_abox_dbg_dump_min[i]->dram)
-			vm_unmap_ram(p_abox_dbg_dump_min[i]->dram,
-			    DRAM_FIRMWARE_SIZE);
-		if (tmp) {
-			int j;
-
-			for (j = 0; j < DRAM_FIRMWARE_SIZE / PAGE_SIZE; j++, tmp++)
-				__free_pages(*tmp, 0);
-			kfree(p_abox_dbg_dump_min[i]->pages);
-			p_abox_dbg_dump_min[i]->pages = NULL;
-		}
-	}
 
 	return 0;
 }

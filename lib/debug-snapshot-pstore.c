@@ -210,19 +210,10 @@ EXPORT_SYMBOL(dbg_snapshot_hook_pmsg);
  */
 
 static struct ramoops_platform_data dss_ramoops_data = {
-#ifdef CONFIG_DEBUG_SNAPSHOT_MINIMIZED_MODE
-	.record_size	= SZ_128K,
-	.console_size	= SZ_128K,
-	.ftrace_size	= SZ_128K,
-	.pmsg_size	= SZ_128K,
-	.annotate_size  = SZ_2K,
-#else
 	.record_size	= SZ_512K,
 	.console_size	= SZ_512K,
-	.ftrace_size	= SZ_256K,
+	.ftrace_size	= SZ_512K,
 	.pmsg_size	= SZ_512K,
-        .annotate_size  = SZ_2K,
-#endif
 	.dump_oops	= 1,
 };
 

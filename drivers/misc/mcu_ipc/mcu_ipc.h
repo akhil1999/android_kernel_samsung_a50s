@@ -17,10 +17,6 @@
 /* Shared register with 64 * 32 words */
 #define MAX_MBOX_NUM	64
 
-/* Mailbox interrupt affinity core number */
-/* It should be assigned in little core */
-#define MCU_IPC_AFFINITY_CORE 3
-
 enum mcu_ipc_region {
 	MCU_CP,
 	MCU_GNSS,
@@ -50,7 +46,7 @@ struct mcu_ipc_drv_data {
 	struct mcu_ipc_ipc_handler hd[16];
 	spinlock_t lock;
 	spinlock_t reg_lock;
-	int irq;
+
 };
 
 static struct mcu_ipc_drv_data mcu_dat[MCU_MAX];
@@ -82,6 +78,11 @@ static inline struct cpumask *get_default_cpu_mask(void)
 	return cpu_all_mask;
 }
 #endif
+
+struct mcu_argos_info {
+	int irq;
+	u32 affinity;
+};
 
 int argos_irq_affinity_setup_label(unsigned int irq, const char *label,
 		struct cpumask *affinity_cpu_mask,

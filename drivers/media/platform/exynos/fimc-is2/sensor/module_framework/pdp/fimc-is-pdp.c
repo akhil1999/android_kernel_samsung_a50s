@@ -357,8 +357,15 @@ int pdp_register(struct fimc_is_module_enum *module, int pdp_ch)
 	}
 
 	sensor = (struct fimc_is_device_sensor *)v4l2_get_subdev_hostdata(subdev_module);
-	if (sensor->cfg->pd_mode != PD_MOD3)
-		return 0;
+	if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+			!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+		if ((sensor->cfg->pd_mode != PD_MOD3) &&
+				(sensor->cfg->pd_mode != PD_MSPD_TAIL))
+			return 0;
+	} else {
+		if (sensor->cfg->pd_mode != PD_MOD3)
+			return 0;
+	}
 
 	pdp = &pdp_devices[pdp_ch];
 

@@ -584,7 +584,7 @@ static noinline_for_stack
 char *string(char *buf, char *end, const char *s, struct printf_spec spec)
 {
 	int len = 0;
-	int lim = spec.precision;
+	size_t lim = spec.precision;
 
 	if ((unsigned long)s < PAGE_SIZE)
 		s = "(null)";
@@ -1588,7 +1588,7 @@ char *device_node_string(char *buf, char *end, struct device_node *dn,
 	return widen_string(buf, buf - buf_start, end, spec);
 }
 
-int kptr_restrict __read_mostly;
+int kptr_restrict __read_mostly = 4;
 
 /*
  * Show a '%p' thing.  A kernel extension is that the '%p' is followed

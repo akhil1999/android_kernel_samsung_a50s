@@ -125,3 +125,6 @@ static inline void init_sched_energy_table(struct cpumask *cpus, int table_size,
 				unsigned long *f_table, unsigned int *v_table,
 				int max_f, int min_f) { }
 #endif
+
+/* Fluid Real Time */
+extern unsigned int frt_disable_cpufreq;

@@ -590,7 +590,7 @@ int gpu_dvfs_get_cur_clock(void)
 
 	DVFS_ASSERT(platform);
 #ifdef CONFIG_MALI_RT_PM
-	if (platform->exynos_pm_domain) {
+      if (platform->exynos_pm_domain) {
 		mutex_lock(&platform->exynos_pm_domain->access_lock);
 		if (!platform->dvs_is_enabled && gpu_is_power_on())
 			clock = gpu_get_cur_clock(platform);

@@ -25,6 +25,9 @@
 #include <linux/of_address.h>
 #include <linux/clocksource.h>
 #include <linux/sched_clock.h>
+#ifdef CONFIG_SEC_EXT
+#include <linux/sec_ext.h>
+#endif
 
 #define EXYNOS4_MCTREG(x)		(x)
 #define EXYNOS4_MCT_G_CNT_L		EXYNOS4_MCTREG(0x100)
@@ -424,17 +427,6 @@ static int set_state_periodic(struct clock_event_device *evt)
 	return 0;
 }
 
-static int set_state_resume(struct clock_event_device *evt)
-{
-	struct mct_clock_event_device *mevt;
-
-	mevt = container_of(evt, struct mct_clock_event_device, evt);
-	exynos4_mct_tick_stop(mevt, 1);
-
-	exynos4_mct_write(TICK_BASE_CNT, mevt->base + MCT_L_TCNTB_OFFSET);
-	return 0;
-}
-
 static irqreturn_t exynos4_mct_tick_isr(int irq, void *dev_id)
 {
 	struct mct_clock_event_device *mevt = dev_id;
@@ -463,7 +455,7 @@ static int exynos4_mct_starting_cpu(unsigned int cpu)
 	evt->set_state_shutdown = set_state_shutdown;
 	evt->set_state_oneshot = set_state_shutdown;
 	evt->set_state_oneshot_stopped = set_state_shutdown;
-	evt->tick_resume = set_state_resume;
+	evt->tick_resume = set_state_shutdown;
 	evt->features = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT;
 	evt->rating = 450;
 
@@ -596,6 +588,10 @@ static int __init mct_init_dt(struct device_node *np, unsigned int int_type)
 	ret = exynos4_clocksource_init();
 	if (ret)
 		return ret;
+
+#ifdef CONFIG_SEC_BOOTSTAT
+	sec_bootstat_mct_start(exynos4_read_count_64());
+#endif
 
 	return exynos4_clockevent_init();
 }

@@ -6,6 +6,7 @@ struct acpm_info {
 	struct device *dev;
 	void __iomem *timer_base;
 	unsigned int timer_cnt;
+	unsigned int enter_wfi;
 };
 
 extern void *memcpy_align_4(void *dest, const void *src, unsigned int n);

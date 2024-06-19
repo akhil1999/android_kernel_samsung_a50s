@@ -23,8 +23,9 @@
 #include "fimc-is-interface-vra.h"
 #include "../fimc-is-device-ischain.h"
 #include "fimc-is-vender.h"
-#if defined(CONFIG_TIMA_RKP)
-#include <linux/rkp_entry.h>
+
+#ifdef CONFIG_UH_RKP
+#include <linux/rkp.h>
 #endif
 
 struct fimc_is_lib_support gPtr_lib_support;
@@ -319,6 +320,11 @@ static void free_tracks(void)
 static void mblk_init(struct lib_mem_block *mblk, struct fimc_is_priv_buf *pb,
 	u32 type, const char *name)
 {
+	if (!mblk || !pb) {
+		warn_lib("Invalid argument. mblk %p pb %p\n", mblk, pb);
+		return;
+	}
+
 	spin_lock_init(&mblk->lock);
 	INIT_LIST_HEAD(&mblk->list);
 	mblk->align = pb->align;
@@ -456,6 +462,20 @@ void fimc_is_free_dma_taaisp(void *kva)
 	return free_to_mblk(&lib->mb_dma_taaisp, kva);
 }
 
+void *fimc_is_alloc_dma_medrc(u32 size)
+{
+	struct fimc_is_lib_support *lib = &gPtr_lib_support;
+
+	return alloc_from_mblk(&lib->mb_dma_medrc, size);
+}
+
+void fimc_is_free_dma_medrc(void *kva)
+{
+	struct fimc_is_lib_support *lib = &gPtr_lib_support;
+
+	return free_to_mblk(&lib->mb_dma_medrc, kva);
+}
+
 void *fimc_is_alloc_dma_tnr(u32 size)
 {
 	struct fimc_is_lib_support *lib = &gPtr_lib_support;
@@ -509,7 +529,7 @@ static void __maybe_unused *fimc_is_alloc_dma_pb(u32 size)
 		return NULL;
 	}
 
-	pb = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, size, 0, NULL);
+	pb = CALL_PTR_MEMOP(mem, alloc, mem->default_ctx, size, NULL, 0);
 	if (IS_ERR_OR_NULL(pb)) {
 		err_lib("failed to allocate a private buffer");
 		kfree(buf);
@@ -637,6 +657,13 @@ int fimc_is_dva_dma_taaisp(ulong kva, u32 *dva)
 	return mblk_dva(&lib->mb_dma_taaisp, kva, dva);
 }
 
+int fimc_is_dva_dma_medrc(ulong kva, u32 *dva)
+{
+	struct fimc_is_lib_support *lib = &gPtr_lib_support;
+
+	return mblk_dva(&lib->mb_dma_medrc, kva, dva);
+}
+
 int fimc_is_dva_dma_tnr(ulong kva, u32 *dva)
 {
 	struct fimc_is_lib_support *lib = &gPtr_lib_support;
@@ -656,6 +683,13 @@ int fimc_is_kva_dma_taaisp(u32 dva, ulong *kva)
 	struct fimc_is_lib_support *lib = &gPtr_lib_support;
 
 	return mblk_kva(&lib->mb_dma_taaisp, dva, kva);
+}
+
+int fimc_is_kva_dma_medrc(u32 dva, ulong *kva)
+{
+	struct fimc_is_lib_support *lib = &gPtr_lib_support;
+
+	return mblk_kva(&lib->mb_dma_medrc, dva, kva);
 }
 
 int fimc_is_kva_dma_tnr(u32 dva, ulong *kva)
@@ -694,6 +728,13 @@ void fimc_is_inv_dma_taaisp(ulong kva, u32 size)
 	struct fimc_is_lib_support *lib = &gPtr_lib_support;
 
 	return mblk_inv(&lib->mb_dma_taaisp, kva, size);
+}
+
+void fimc_is_inv_dma_medrc(ulong kva, u32 size)
+{
+	struct fimc_is_lib_support *lib = &gPtr_lib_support;
+
+	return mblk_inv(&lib->mb_dma_medrc, kva, size);
 }
 
 void fimc_is_inv_dma_tnr(ulong kva, u32 size)
@@ -1510,7 +1551,7 @@ ulong get_reg_addr(u32 id)
 	return reg_addr;
 }
 
-static void __nocfi lib_task_work(struct kthread_work *work)
+static void lib_task_work(struct kthread_work *work)
 {
 	struct fimc_is_task_work *cur_work;
 
@@ -1775,9 +1816,9 @@ void check_lib_memory_leak(void)
 #endif
 }
 
-bool fimc_is_lib_in_interrupt(void)
+bool fimc_is_lib_in_irq(void)
 {
-	if (in_interrupt())
+	if (in_irq())
 		return true;
 	else
 		return false;
@@ -1925,6 +1966,19 @@ static void fimc_is_get_hybrid_fd_data(u32 instance,
 	}
 }
 
+void fimc_is_get_binary_version(char **buf, unsigned int type, unsigned int hint)
+{
+	char *p;
+
+	*buf = get_binary_version(type, hint);
+
+	if (type == IS_BIN_LIBRARY) {
+		p = strrchr(*buf, ']');
+		if (p)
+			*buf = p + 1;
+	}
+}
+
 void set_os_system_funcs(os_system_func_t *funcs)
 {
 	funcs[0] = (os_system_func_t)fimc_is_log_write_console;
@@ -1985,7 +2039,7 @@ void set_os_system_funcs(os_system_func_t *funcs)
 	funcs[45] = NULL;
 	funcs[46] = (os_system_func_t)get_reg_addr;
 
-	funcs[47] = (os_system_func_t)fimc_is_lib_in_interrupt;
+	funcs[47] = (os_system_func_t)fimc_is_lib_in_irq;
 	funcs[48] = (os_system_func_t)fimc_is_lib_flush_task_handler;
 
 	funcs[49] = (os_system_func_t)fimc_is_get_fd_data; /* for FDAE/FDAF */
@@ -1996,37 +2050,19 @@ void set_os_system_funcs(os_system_func_t *funcs)
 	funcs[62] = (os_system_func_t)fimc_is_inv_dma_tnr;
 	funcs[63] = (os_system_func_t)fimc_is_alloc_dma_tnr;
 	funcs[64] = (os_system_func_t)fimc_is_free_dma_tnr;
+	funcs[65] = (os_system_func_t)fimc_is_dva_dma_medrc;
+	funcs[66] = (os_system_func_t)fimc_is_kva_dma_medrc;
+	funcs[67] = (os_system_func_t)fimc_is_inv_dma_medrc;
+	funcs[68] = (os_system_func_t)fimc_is_alloc_dma_medrc;
+	funcs[69] = (os_system_func_t)fimc_is_free_dma_medrc;
+
+	funcs[91] = (os_system_func_t)fimc_is_get_binary_version;
 
 	/* TODO: re-odering function table */
 	funcs[99] = (os_system_func_t)fimc_is_event_write;
 }
 
 #ifdef USE_RTA_BINARY
-void fimc_is_get_version(char **ddk, char **rta, char **setfile, char **companion)
-{
-	char *p;
-
-	if (ddk) {
-		*ddk = fimc_is_ischain_get_version(FIMC_IS_BIN_DDK_LIBRARY);
-		p = strrchr(*ddk, ']');
-		if (p)
-			*ddk = p+1;
-	}
-	if (rta) {
-		*rta = fimc_is_ischain_get_version(FIMC_IS_BIN_RTA_LIBRARY);
-		p = strrchr(*rta, ']');
-		if (p)
-			*rta = p+1;
-	}
-	if (setfile)
-		*setfile = fimc_is_ischain_get_version(FIMC_IS_BIN_SETFILE);
-	if (companion)
-		*companion = fimc_is_ischain_get_version(FIMC_IS_BIN_COMPANION);
-
-	if (ddk && rta && setfile && companion)
-		info("%s ddk:%s rta:%s setfile:%s companion:%s", __func__, *ddk, *rta, *setfile, *companion);
-}
-
 void set_os_system_funcs_for_rta(os_system_func_t *funcs)
 {
 	/* Index 0 => log, assert */
@@ -2078,7 +2114,7 @@ void set_os_system_funcs_for_rta(os_system_func_t *funcs)
 
 	/* Index 90 => misc */
 	funcs[90] = (os_system_func_t)fimc_is_get_usec;
-	funcs[91] = (os_system_func_t)fimc_is_get_version;
+	funcs[91] = (os_system_func_t)fimc_is_get_binary_version;
 }
 #endif
 
@@ -2197,7 +2233,9 @@ int fimc_is_memory_attribute_rox(struct fimc_is_memory_attribute *attribute)
 
 #define INDEX_VRA_BIN	0
 #define INDEX_ISP_BIN	1
-int __nocfi fimc_is_load_ddk_bin(int loadType)
+#define INDEX_CDH_BIN	2
+static bool cdh_loaded = false;
+int fimc_is_load_ddk_bin(int loadType)
 {
 	int ret = 0;
 	char bin_type[4] = {0};
@@ -2206,23 +2244,26 @@ int __nocfi fimc_is_load_ddk_bin(int loadType)
 	struct device *device = &gPtr_lib_support.pdev->dev;
 	/* fixup the memory attribute for every region */
 	ulong lib_addr;
+#ifdef CONFIG_UH_RKP
+	rkp_dynamic_load_t rkp_dyn;
+	rkp_dynamic_load_t rkp_dyn_cdh;
+	static rkp_dynamic_load_t rkp_dyn_before = {0};
+#endif
 	ulong lib_isp = DDK_LIB_ADDR;
+
 #ifdef USE_ONE_BINARY
 	size_t bin_size = VRA_LIB_SIZE + DDK_LIB_SIZE;
 #else
 	size_t bin_size = DDK_LIB_SIZE;
 #endif
-#if defined(CONFIG_TIMA_RKP)
-	unsigned int rkp_result = 0;
-#endif
 
-#if !defined(CONFIG_TIMA_RKP)
 	ulong lib_vra = VRA_LIB_ADDR;
+	ulong lib_cdh = __LIB_START;
 	struct fimc_is_memory_attribute memory_attribute[] = {
 		{__pgprot(PTE_RDONLY), PFN_UP(LIB_VRA_CODE_SIZE), lib_vra},
-		{__pgprot(PTE_RDONLY), PFN_UP(LIB_ISP_CODE_SIZE), lib_isp}
+		{__pgprot(PTE_RDONLY), PFN_UP(LIB_ISP_CODE_SIZE), lib_isp},
+		{__pgprot(PTE_RDONLY), PFN_UP(LIB_CDH_CODE_SIZE), lib_cdh}
 	};
-#endif
 
 #ifdef USE_ONE_BINARY
 	lib_addr = LIB_START;
@@ -2232,23 +2273,7 @@ int __nocfi fimc_is_load_ddk_bin(int loadType)
 	snprintf(bin_type, sizeof(bin_type), "ISP");
 #endif
 
-#if !defined(CONFIG_TIMA_RKP)
 	/* load DDK library */
-	ret = fimc_is_memory_attribute_nxrw(&memory_attribute[INDEX_ISP_BIN]);
-	if (ret) {
-		err_lib("failed to change into NX memory attribute (%d)", ret);
-		return ret;
-	}
-
-#ifdef USE_ONE_BINARY
-	ret = fimc_is_memory_attribute_nxrw(&memory_attribute[INDEX_VRA_BIN]);
-	if (ret) {
-		err_lib("failed to change into NX memory attribute (%d)", ret);
-		return ret;
-	}
-#endif
-#endif
-
 	setup_binary_loader(&bin, 3, -EAGAIN, NULL, NULL);
 #ifdef CAMERA_FW_LOADING_FROM
 	ret = fimc_is_vender_request_binary(&bin, FIMC_IS_ISP_LIB_SDCARD_PATH, FIMC_IS_FW_DUMP_PATH,
@@ -2263,32 +2288,105 @@ int __nocfi fimc_is_load_ddk_bin(int loadType)
 	}
 
 	if (loadType == BINARY_LOAD_ALL) {
+#ifdef CONFIG_UH_RKP
+		memset(&rkp_dyn, 0, sizeof(rkp_dyn));
+		rkp_dyn.binary_base = lib_addr;
+		rkp_dyn.binary_size = bin.size;
+		rkp_dyn.code_base1 = memory_attribute[INDEX_ISP_BIN].vaddr;
+		rkp_dyn.code_size1 = memory_attribute[INDEX_ISP_BIN].numpages * PAGE_SIZE;
+#ifdef USE_ONE_BINARY
+		rkp_dyn.type = RKP_DYN_FIMC_COMBINED;
+		rkp_dyn.code_base2 = memory_attribute[INDEX_VRA_BIN].vaddr;
+		rkp_dyn.code_size2 = memory_attribute[INDEX_VRA_BIN].numpages * PAGE_SIZE;
+		memset(&rkp_dyn_cdh, 0, sizeof(rkp_dyn_cdh));
+		rkp_dyn_cdh.type = RKP_DYN_CDH;
+		rkp_dyn_cdh.binary_base = lib_cdh;
+		rkp_dyn_cdh.binary_size = CDH_SIZE;
+		rkp_dyn_cdh.code_base1 = memory_attribute[INDEX_CDH_BIN].vaddr;
+		rkp_dyn_cdh.code_size1 = memory_attribute[INDEX_CDH_BIN].numpages * PAGE_SIZE;
+#else
+		rkp_dyn.type = RKP_DYN_FIMC;
+#endif
+		if (rkp_dyn_before.type)
+			uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_RM,(u64)&rkp_dyn_before, 0, 0);
+		memcpy(&rkp_dyn_before, &rkp_dyn, sizeof(rkp_dynamic_load_t));
+#endif
+		ret = fimc_is_memory_attribute_nxrw(&memory_attribute[INDEX_ISP_BIN]);
+		if (ret) {
+			err_lib("failed to change into NX memory attribute (%d)", ret);
+			return ret;
+		}
+
+#ifdef USE_ONE_BINARY
+		ret = fimc_is_memory_attribute_nxrw(&memory_attribute[INDEX_VRA_BIN]);
+		if (ret) {
+			err_lib("failed to change into NX memory attribute (%d)", ret);
+			return ret;
+		}
+#endif
+
+		if (!cdh_loaded) {
+			ret = fimc_is_memory_attribute_nxrw(&memory_attribute[INDEX_CDH_BIN]);
+			if (ret) {
+				err_lib("failed to change into NX memory attribute (%d)", ret);
+				return ret;
+			}
+		}
+
 		info_lib("binary info[%s] - type: C/D, from: %s\n",
 			bin_type,
 			was_loaded_by(&bin) ? "built-in" : "user-provided");
 		if (bin.size <= bin_size) {
-			memcpy((void *)lib_addr, bin.data + CDH_SIZE, bin.size - CDH_SIZE);
-			__flush_dcache_area((void *)lib_addr, bin.size - CDH_SIZE);
-#if defined(CONFIG_TIMA_RKP)
-			if (!(gPtr_lib_support.binary_code_load_flg & BINARY_LOAD_DDK_DONE)) {
-				flush_cache_all();
-				rkp_call(RKP_FIMC_VERIFY,
-						(u64)page_to_phys(vmalloc_to_page((void *)lib_addr)),
-						(u64)bin.size, 1, 0, (u64)virt_to_phys(&rkp_result));
-				if (rkp_result != RKP_FIMC_SUCCESS) {
-					gPtr_lib_support.binary_load_fatal = rkp_result;
-					err_lib("DDK verification failed %x", rkp_result);
-					ret = -EBADF;
-					goto fail;
-				}
+			if (!cdh_loaded) {
+				memcpy((void *)lib_addr - CDH_SIZE, bin.data, bin.size);
+				__flush_dcache_area((void *)lib_addr - CDH_SIZE, bin.size);
+			} else {
+				memcpy((void *)lib_addr, bin.data + CDH_SIZE, bin.size - CDH_SIZE);
+				__flush_dcache_area((void *)lib_addr, bin.size - CDH_SIZE);
 			}
-#endif
 		} else {
 			err_lib("DDK bin size is bigger than memory area. %zd[%zd]",
 				bin.size, bin_size);
 			ret = -EBADF;
 			goto fail;
 		}
+
+#ifdef CONFIG_UH_RKP
+		ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS, (u64)&rkp_dyn, 0, 0);
+		if (ret) {
+			err_lib("fail to load verify FIMC in EL2");
+		}
+		if (!cdh_loaded) {
+			ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS, (u64)&rkp_dyn_cdh, 0, 0);
+			if (ret) {
+				err_lib("fail to load verify FIMC in EL2");
+			}
+		}
+		cdh_loaded = true;
+#else
+		ret = fimc_is_memory_attribute_rox(&memory_attribute[INDEX_ISP_BIN]);
+		if (ret) {
+			err_lib("failed to change into EX memory attribute (%d)", ret);
+			return ret;
+		}
+
+#ifdef USE_ONE_BINARY
+		ret = fimc_is_memory_attribute_rox(&memory_attribute[INDEX_VRA_BIN]);
+		if (ret) {
+			err_lib("failed to change into EX memory attribute (%d)", ret);
+			return ret;
+		}
+#endif
+
+		if (!cdh_loaded) {
+			ret = fimc_is_memory_attribute_rox(&memory_attribute[INDEX_CDH_BIN]);
+			if (ret) {
+				err_lib("failed to change into EX memory attribute (%d)", ret);
+				return ret;
+			}
+		}
+		cdh_loaded = true;
+#endif
 	} else { /* loadType == BINARY_LOAD_DATA */
 		if ((bin.size > CAMERA_BINARY_DDK_DATA_OFFSET) && (bin.size <= bin_size)) {
 			info_lib("binary info[%s] - type: D, from: %s\n",
@@ -2315,24 +2413,9 @@ int __nocfi fimc_is_load_ddk_bin(int loadType)
 		}
 	}
 
-	fimc_is_ischain_version(FIMC_IS_BIN_DDK_LIBRARY, bin.data + CDH_SIZE, bin.size - CDH_SIZE);
+	carve_binary_version(IS_BIN_LIBRARY, IS_BIN_LIB_HINT_DDK,
+						bin.data + CDH_SIZE, bin.size - CDH_SIZE);
 	release_binary(&bin);
-
-#if !defined(CONFIG_TIMA_RKP)
-	ret = fimc_is_memory_attribute_rox(&memory_attribute[INDEX_ISP_BIN]);
-	if (ret) {
-		err_lib("failed to change into EX memory attribute (%d)", ret);
-		return ret;
-	}
-
-#ifdef USE_ONE_BINARY
-	ret = fimc_is_memory_attribute_rox(&memory_attribute[INDEX_VRA_BIN]);
-	if (ret) {
-		err_lib("failed to change into EX memory attribute (%d)", ret);
-		return ret;
-	}
-#endif
-#endif
 
 	gPtr_lib_support.log_ptr = 0;
 	set_os_system_funcs(os_system_funcs);
@@ -2347,7 +2430,7 @@ int __nocfi fimc_is_load_ddk_bin(int loadType)
 	return 0;
 
 fail:
-	fimc_is_ischain_version(FIMC_IS_BIN_DDK_LIBRARY, bin.data, bin.size);
+	carve_binary_version(IS_BIN_LIBRARY, IS_BIN_LIB_HINT_DDK, bin.data, bin.size);
 	release_binary(&bin);
 	return ret;
 }
@@ -2363,21 +2446,17 @@ int fimc_is_load_vra_bin(int loadType)
 	/* fixup the memory attribute for every region */
 	ulong lib_isp = DDK_LIB_ADDR;
 	ulong lib_vra = VRA_LIB_ADDR;
-#if !defined(CONFIG_TIMA_RKP)
 	struct fimc_is_memory_attribute memory_attribute[] = {
 		{__pgprot(PTE_RDONLY), PFN_UP(LIB_VRA_CODE_SIZE), lib_vra},
 		{__pgprot(PTE_RDONLY), PFN_UP(LIB_ISP_CODE_SIZE), lib_isp}
 	};
-#endif
 
 	/* load VRA library */
-#if !defined(CONFIG_TIMA_RKP)
 	ret = fimc_is_memory_attribute_nxrw(&memory_attribute[INDEX_VRA_BIN]);
 	if (ret) {
 		err_lib("failed to change into NX memory attribute (%d)", ret);
 		return ret;
 	}
-#endif
 
 	setup_binary_loader(&bin, 3, -EAGAIN, NULL, NULL);
 	ret = request_binary(&bin, FIMC_IS_ISP_LIB_SDCARD_PATH,
@@ -2401,13 +2480,11 @@ int fimc_is_load_vra_bin(int loadType)
 
 	release_binary(&bin);
 
-#if !defined(CONFIG_TIMA_RKP)
 	ret = fimc_is_memory_attribute_rox(&memory_attribute[INDEX_VRA_BIN]);
 	if (ret) {
 		err_lib("failed to change into EX memory attribute (%d)", ret);
 		return ret;
 	}
-#endif
 #endif
 
 	fimc_is_lib_vra_os_funcs();
@@ -2421,7 +2498,7 @@ fail:
 #endif
 }
 
-int __nocfi fimc_is_load_rta_bin(int loadType)
+int fimc_is_load_rta_bin(int loadType)
 {
 	int ret = 0;
 #ifdef USE_RTA_BINARY
@@ -2430,21 +2507,16 @@ int __nocfi fimc_is_load_rta_bin(int loadType)
 
 	os_system_func_t os_system_funcs[100];
 	ulong lib_rta = RTA_LIB_ADDR;
-#if defined(CONFIG_TIMA_RKP)
-	unsigned int rkp_result = 0;
+
+#ifdef CONFIG_UH_RKP
+	rkp_dynamic_load_t rkp_dyn;
+	static rkp_dynamic_load_t rkp_dyn_before = {0};
 #endif
 
-#if !defined(CONFIG_TIMA_RKP)
 	struct fimc_is_memory_attribute rta_memory_attribute = {
 		__pgprot(PTE_RDONLY), PFN_UP(LIB_RTA_CODE_SIZE), lib_rta};
 
 	/* load RTA library */
-	ret = fimc_is_memory_attribute_nxrw(&rta_memory_attribute);
-	if (ret) {
-		err_lib("failed to change into NX memory attribute (%d)", ret);
-		return ret;
-	}
-#endif
 
 	setup_binary_loader(&bin, 3, -EAGAIN, NULL, NULL);
 #ifdef CAMERA_FW_LOADING_FROM
@@ -2460,30 +2532,47 @@ int __nocfi fimc_is_load_rta_bin(int loadType)
 	}
 
 	if (loadType == BINARY_LOAD_ALL) {
+#ifdef CONFIG_UH_RKP
+		memset(&rkp_dyn, 0, sizeof(rkp_dyn));
+		rkp_dyn.binary_base = lib_rta;
+		rkp_dyn.binary_size = bin.size;
+		rkp_dyn.code_base1 = rta_memory_attribute.vaddr;
+		rkp_dyn.code_size1 = rta_memory_attribute.numpages * PAGE_SIZE;
+		rkp_dyn.type = RKP_DYN_FIMC;
+		if (rkp_dyn_before.type)
+			uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_RM, (u64)&rkp_dyn_before, 0, 0);
+		memcpy(&rkp_dyn_before, &rkp_dyn, sizeof(rkp_dynamic_load_t));
+#endif
+		ret = fimc_is_memory_attribute_nxrw(&rta_memory_attribute);
+		if (ret) {
+			err_lib("failed to change into NX memory attribute (%d)", ret);
+			return ret;
+		}
+
 		info_lib("binary info[RTA] - type: C/D, from: %s\n",
 			was_loaded_by(&bin) ? "built-in" : "user-provided");
 		if (bin.size <= RTA_LIB_SIZE) {
 			memcpy((void *)lib_rta, bin.data, bin.size);
 			__flush_dcache_area((void *)lib_rta, bin.size);
-#if defined(CONFIG_TIMA_RKP)
-			if (!(gPtr_lib_support.binary_code_load_flg & BINARY_LOAD_RTA_DONE)) {
-				flush_cache_all();
-				rkp_call(RKP_FIMC_VERIFY,
-					(u64)page_to_phys(vmalloc_to_page((void *)lib_rta)),
-					(u64)bin.size, 2, RTA_CODE_AREA_SIZE, (u64)virt_to_phys(&rkp_result));
-				if (rkp_result != RKP_FIMC_SUCCESS) {
-					gPtr_lib_support.binary_load_fatal |= (rkp_result << 8);
-					ret = -EBADF;
-					goto fail;
-				}
-			}
-#endif
 		} else {
 			err_lib("RTA bin size is bigger than memory area. %d[%d]",
 				(unsigned int)bin.size, (unsigned int)RTA_LIB_SIZE);
 			ret = -EBADF;
 			goto fail;
 		}
+#ifdef CONFIG_UH_RKP
+		ret = uh_call(UH_APP_RKP, RKP_DYNAMIC_LOAD, RKP_DYN_COMMAND_INS,(u64)&rkp_dyn, 0, 0);
+		if (ret) {
+			err_lib("fail to load verify FIMC in EL2");
+		}
+#else
+		ret = fimc_is_memory_attribute_rox(&rta_memory_attribute);
+		if (ret) {
+			err_lib("failed to change into EX memory attribute (%d)", ret);
+			return ret;
+		}
+#endif
+
 	} else { /* loadType == BINARY_LOAD_DATA */
 		if ((bin.size > CAMERA_BINARY_RTA_DATA_OFFSET) && (bin.size <= RTA_LIB_SIZE)) {
 			info_lib("binary info[RTA] - type: D, from: %s\n",
@@ -2501,16 +2590,8 @@ int __nocfi fimc_is_load_rta_bin(int loadType)
 		}
 	}
 
-	fimc_is_ischain_version(FIMC_IS_BIN_RTA_LIBRARY, bin.data, bin.size);
+	carve_binary_version(IS_BIN_LIBRARY, IS_BIN_LIB_HINT_RTA, bin.data, bin.size);
 	release_binary(&bin);
-
-#if !defined(CONFIG_TIMA_RKP)
-	ret = fimc_is_memory_attribute_rox(&rta_memory_attribute);
-	if (ret) {
-		err_lib("failed to change into EX memory attribute (%d)", ret);
-		return ret;
-	}
-#endif
 
 	set_os_system_funcs_for_rta(os_system_funcs);
 	/* call start_up function for RTA binary */
@@ -2526,7 +2607,7 @@ int __nocfi fimc_is_load_rta_bin(int loadType)
 	return ret;
 
 fail:
-	fimc_is_ischain_version(FIMC_IS_BIN_RTA_LIBRARY, bin.data, bin.size);
+	carve_binary_version(IS_BIN_LIBRARY, IS_BIN_LIB_HINT_RTA, bin.data, bin.size);
 	release_binary(&bin);
 	return ret;
 }
@@ -2615,13 +2696,19 @@ int fimc_is_load_bin(void)
 	lib->binary_load_flg = true;
 
 #if defined(SECURE_CAMERA_FACE)
-	if (core && core->scenario == FIMC_IS_SCENARIO_SECURE)
+	if (core && core->scenario == FIMC_IS_SCENARIO_SECURE) {
 		mblk_init(&lib->mb_dma_taaisp, lib->minfo->pb_taaisp_s,
 				MT_TYPE_MB_DMA_TAAISP, "DMA_TAAISP_S");
-	else
+		mblk_init(&lib->mb_dma_medrc, lib->minfo->pb_medrc_s,
+				MT_TYPE_MB_DMA_MEDRC, "DMA_MEDRC_S");
+	} else
 #endif
+	{
 		mblk_init(&lib->mb_dma_taaisp, lib->minfo->pb_taaisp,
 				MT_TYPE_MB_DMA_TAAISP, "DMA_TAAISP");
+		mblk_init(&lib->mb_dma_medrc, lib->minfo->pb_medrc,
+				MT_TYPE_MB_DMA_MEDRC, "DMA_MEDRC");
+	}
 
 #if defined(ENABLE_TNR)
 	mblk_init(&lib->mb_dma_tnr, lib->minfo->pb_tnr, MT_TYPE_MB_DMA_TNR, "DMA_TNR");

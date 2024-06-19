@@ -134,13 +134,9 @@ out_rcu_unlock:
 }
 EXPORT_SYMBOL(ip6_expire_frag_queue);
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
-static void ip6_frag_expire(unsigned long t)
-#else
 static void ip6_frag_expire(struct timer_list *t)
-#endif
 {
-	struct inet_frag_queue *frag = from_timer(frag, (struct timer_list *)t, timer);
+	struct inet_frag_queue *frag = from_timer(frag, t, timer);
 	struct frag_queue *fq;
 	struct net *net;
 
@@ -192,6 +188,7 @@ static int ip6_frag_queue(struct frag_queue *fq, struct sk_buff *skb,
 	if ((unsigned int)end > IPV6_MAXPLEN) {
 		__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 				IPSTATS_MIB_INHDRERRORS);
+		DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS);
 		icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
 				  ((u8 *)&fhdr->frag_off -
 				   skb_network_header(skb)));
@@ -227,6 +224,7 @@ static int ip6_frag_queue(struct frag_queue *fq, struct sk_buff *skb,
 			 */
 			__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 					IPSTATS_MIB_INHDRERRORS);
+			DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS);
 			icmpv6_param_prob(skb, ICMPV6_HDR_FIELD,
 					  offsetof(struct ipv6hdr, payload_len));
 			return -1;
@@ -533,10 +531,6 @@ static int ipv6_frag_rcv(struct sk_buff *skb)
 		return 1;
 	}
 
-	if (skb->len - skb_network_offset(skb) < IPV6_MIN_MTU &&
-	    fhdr->frag_off & htons(IP6_MF))
-		goto fail_hdr;
-
 	iif = skb->dev ? skb->dev->ifindex : 0;
 	fq = fq_find(net, fhdr->identification, hdr, iif);
 	if (fq) {
@@ -559,6 +553,7 @@ static int ipv6_frag_rcv(struct sk_buff *skb)
 fail_hdr:
 	__IP6_INC_STATS(net, ip6_dst_idev(skb_dst(skb)),
 			IPSTATS_MIB_INHDRERRORS);
+	DROPDUMP_QUEUE_SKB(skb, NET_DROPDUMP_IPSTATS_MIB_INHDRERRORS);
 	icmpv6_param_prob(skb, ICMPV6_HDR_FIELD, skb_network_header_len(skb));
 	return -1;
 }

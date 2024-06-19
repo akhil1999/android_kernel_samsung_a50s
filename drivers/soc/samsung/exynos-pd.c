@@ -17,6 +17,7 @@
 #include <soc/samsung/cal-if.h>
 #include <linux/apm-exynos.h>
 #include <sound/samsung/abox.h>
+#include <linux/sec_debug.h>
 
 struct exynos_pm_domain *exynos_pd_lookup_name(const char *domain_name)
 {
@@ -166,11 +167,13 @@ static int exynos_pd_power_off(struct generic_pm_domain *genpd)
 			exynos_pd_prepare_forced_off(pd);
 			ret = pd->pd_control(pd->cal_pdid, 0);
 			if (unlikely(ret)) {
-				pr_err(EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
+				pr_auto(ASL1, EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
+				sec_debug_set_extra_info_epd((char *)(genpd->name));
 				goto acc_unlock;
 			}
 		} else {
-			pr_err(EXYNOS_PD_PREFIX "%s occur error at power off!\n", genpd->name);
+			pr_auto(ASL1, EXYNOS_PD_PREFIX "%s occur error at power off!!\n", genpd->name);
+			sec_debug_set_extra_info_epd((char *)(genpd->name));
 			goto acc_unlock;
 		}
 	}

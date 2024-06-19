@@ -51,7 +51,6 @@
 #define SENSOR_SCENARIO_READ_ROM	4
 #define SENSOR_SCENARIO_STANDBY	5
 #define SENSOR_SCENARIO_SECURE		6
-#define SENSOR_SCENARIO_FACTORY		7
 #define SENSOR_SCENARIO_VIRTUAL	9
 #define SENSOR_SCENARIO_MAX		10
 
@@ -62,7 +61,6 @@
 #define PIN_FUNCTION	4
 #define PIN_REGULATOR	5
 #define PIN_I2C		6
-#define PIN_RETRY	8
 
 #define DT_SET_PIN(p, n, a, v, t) \
 			seq@__LINE__ { \
@@ -103,13 +101,5 @@
 #define SP_FRONT_TOF	9
 #define SP_SECURE	100
 #define SP_VIRTUAL	101
-
-#define DUAL_SYNC_NONE		0
-#define DUAL_SYNC_MASTER	1
-#define DUAL_SYNC_SLAVE		2
-
-#define DUAL_SYNC_NONE		0
-#define DUAL_SYNC_MASTER	1
-#define DUAL_SYNC_SLAVE		2
 
 #endif

@@ -175,7 +175,7 @@ static int samsung_abox_bt_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "Failed to get %s\n", "mailbox");
 		return -EINVAL;
 	}
-	abox_iommu_map(dev_abox, res->start, res->start, resource_size(res));
+	abox_iommu_map(dev_abox, res->start, res->start, resource_size(res), 0);
 
 	ret = scsc_bt_audio_register(dev, abox_bt_iommu_map,
 			abox_bt_iommu_unmap);

@@ -11,7 +11,7 @@
 /*#undef	ENABLE_IF_WORK_QUEUE*/
 
 #define	USE_FM_LNA_ENABLE
-#undef	USE_FM_LNA_ENABLE
+/*#undef	USE_FM_LNA_ENABLE*/
 
 #define	RDS_POLLING_ENABLE
 
@@ -103,8 +103,6 @@ enum s610_ctrl_id {
 	V4L2_CID_S610_RSSI_TH = (V4L2_CID_USER_S610_BASE + 0x0D),
 	V4L2_CID_S610_KERNEL_VER = (V4L2_CID_USER_S610_BASE + 0x0E),
 	V4L2_CID_S610_SOFT_STEREO_BLEND_REF = (V4L2_CID_USER_S610_BASE+0x0F),
-	V4L2_CID_S610_REG_RW_ADDR = (V4L2_CID_USER_S610_BASE + 0x10),
-	V4L2_CID_S610_REG_RW = (V4L2_CID_USER_S610_BASE + 0x11),
 };
 
 enum fm_flag_get {
@@ -206,7 +204,6 @@ struct fm_rds_parser_info {
 	struct rtp_info rtp_data;
 
 	u8 grp;
-	u8 pty;
 	bool drop_blk;
 	u8 rds_event;
 };
@@ -450,7 +447,6 @@ struct s610_radio {
 	const char **clk_ids;
 	int tc_on;
 	int trf_on;
-	int trf_spur;
 	int dual_clk_on;
 	int vol_num;
 	u32 *vol_level_mod;
@@ -463,7 +459,6 @@ struct s610_radio {
 	u16 rssi_adjust;
 	bool rssi_ref_enable;
 	u32 agc_enable;
-	u32 speedy_reg_addr;
 /*	debug print counter */
 	int idle_cnt_mod;
 	int rds_cnt_mod;

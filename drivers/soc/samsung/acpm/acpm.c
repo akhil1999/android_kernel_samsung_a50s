@@ -266,6 +266,9 @@ void acpm_enter_wfi(void)
 	int ret = 0;
 	unsigned int cmd[4] = {0, };
 
+	if (exynos_acpm->enter_wfi)
+		return;
+
 	config.cmd = cmd;
 	config.response = true;
 	config.indirection = false;
@@ -275,10 +278,12 @@ void acpm_enter_wfi(void)
 
 	config.cmd = NULL;
 
-	if (ret)
+	if (ret) {
 		pr_err("[ACPM] acpm enter wfi fail!!\n");
-	else
+	} else {
 		pr_err("[ACPM] wfi done\n");
+		exynos_acpm->enter_wfi++;
+	}
 }
 
 void exynos_acpm_timer_clear(void)

@@ -266,6 +266,10 @@ int sensor_imx320_cis_init(struct v4l2_subdev *subdev)
 	struct fimc_is_cis *cis;
 	u32 setfile_index = 0;
 	cis_setting_info setinfo;
+#ifdef USE_CAMERA_HW_BIG_DATA
+	struct cam_hw_param *hw_param = NULL;
+	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
+#endif
 
 	setinfo.param = NULL;
 	setinfo.return_value = 0;
@@ -285,6 +289,13 @@ int sensor_imx320_cis_init(struct v4l2_subdev *subdev)
 
 	ret = sensor_imx320_cis_check_rev(cis);
 	if (ret < 0) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+		sensor_peri = container_of(cis, struct fimc_is_device_sensor_peri, cis);
+		if (sensor_peri)
+			fimc_is_sec_get_hw_param(&hw_param, sensor_peri->module->position);
+		if (hw_param)
+			hw_param->i2c_sensor_err_cnt++;
+#endif
 		warn("sensor_imx320_check_rev is fail when cis init");
 		cis->rev_flag = true;
 		ret = 0;

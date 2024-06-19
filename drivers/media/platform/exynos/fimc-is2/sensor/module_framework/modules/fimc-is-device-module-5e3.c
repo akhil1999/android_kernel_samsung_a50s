@@ -89,18 +89,12 @@ static const struct v4l2_subdev_ops subdev_ops = {
 };
 
 #ifdef CONFIG_SOC_EXYNOS7570
-static int sensor_module_5e3_power_setpin(struct platform_device *pdev,
+static int sensor_module_5e3_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -162,11 +156,10 @@ static int sensor_module_5e3_power_setpin(struct platform_device *pdev,
 	return 0;
 }
 #else
-static int sensor_module_5e3_power_setpin(struct platform_device *pdev,
+static int sensor_module_5e3_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_none = 0;
 #ifdef CONFIG_SOC_EXYNOS7870
@@ -174,11 +167,6 @@ static int sensor_module_5e3_power_setpin(struct platform_device *pdev,
 	int gpio_1p2_en = 0;
 	int gpio_1p8_en = 0;
 #endif
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -268,7 +256,7 @@ static int __init sensor_module_5e3_probe(struct platform_device *pdev)
 
 	dev = &pdev->dev;
 
-	fimc_is_sensor_module_parse_dt(pdev, sensor_module_5e3_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_module_5e3_power_setpin);
 
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];

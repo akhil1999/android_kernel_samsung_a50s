@@ -148,7 +148,7 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_2l7_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 	int gpio_mclk = 0;
 	int gpio_none = 0;
@@ -160,11 +160,22 @@ static int sensor_2l7_power_setpin(struct device *dev,
 	int gpio_vdd28_ois_en = 0;
 #endif
 
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
+#ifdef CONFIG_COMPANION_USE
+	int gpio_prep_reset = 0;
+#endif
 
 	dev_info(dev, "%s E v4\n", __func__);
+
+#ifdef CONFIG_COMPANION_USE
+	gpio_prep_reset = of_get_named_gpio(dnode, "gpio_prep_reset", 0);
+	if (!gpio_is_valid(gpio_prep_reset)) {
+		dev_err(dev, "failed to get main comp reset gpio\n");
+		return -EINVAL;
+	} else {
+		gpio_request_one(gpio_prep_reset, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
+		gpio_free(gpio_prep_reset);
+	}
+#endif
 
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
 	if (!gpio_is_valid(gpio_reset)) {

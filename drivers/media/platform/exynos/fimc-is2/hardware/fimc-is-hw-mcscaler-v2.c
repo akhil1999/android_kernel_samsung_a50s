@@ -280,9 +280,7 @@ static int fimc_is_hw_mcsc_open(struct fimc_is_hw_ip *hw_ip, u32 instance,
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, FRAMEMGR_ID_HW | (1 << hw_ip->id), "HWMCS");
-	frame_manager_probe(hw_ip->framemgr_late, FRAMEMGR_ID_HW | (1 << hw_ip->id) | 0xF000, "HWMCS LATE");
 	frame_manager_open(hw_ip->framemgr, FIMC_IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, FIMC_IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct fimc_is_hw_mcsc));
 	if(!hw_ip->priv_info) {
@@ -335,7 +333,6 @@ err_query_cap:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	return ret;
 }
@@ -404,7 +401,6 @@ static int fimc_is_hw_mcsc_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 	clear_bit(HW_MCS_YSUM_CFG, &hw_ip->state);
@@ -745,7 +741,7 @@ static int fimc_is_hw_mcsc_shot(struct fimc_is_hw_ip *hw_ip, struct fimc_is_fram
 	struct is_param_region *param;
 	struct mcs_param *mcs_param;
 	bool start_flag = true;
-	u32 lindex, hindex, instance;
+	u32 instance;
 	struct fimc_is_hw_mcsc_cap *cap = GET_MCSC_HW_CAP(hw_ip);
 	ulong flag;
 
@@ -795,17 +791,11 @@ static int fimc_is_hw_mcsc_shot(struct fimc_is_hw_ip *hw_ip, struct fimc_is_fram
 		goto config;
 	}
 
-	lindex = frame->shot->ctl.vendor_entry.lowIndexParam;
-	hindex = frame->shot->ctl.vendor_entry.highIndexParam;
-
 	hw_mcsc->back_param = param;
-	hw_mcsc->back_lindex = lindex;
-	hw_mcsc->back_hindex = hindex;
 
 	spin_lock_irqsave(&mcsc_out_slock, flag);
 
-	fimc_is_hw_mcsc_update_param(hw_ip, mcs_param,
-		lindex, hindex, instance);
+	fimc_is_hw_mcsc_update_param(hw_ip, mcs_param, instance);
 
 	spin_unlock_irqrestore(&mcsc_out_slock, flag);
 
@@ -940,11 +930,10 @@ int fimc_is_hw_mcsc_update_register(struct fimc_is_hw_ip *hw_ip,
 }
 
 int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
-	struct mcs_param *param, u32 lindex, u32 hindex, u32 instance)
+	struct mcs_param *param, u32 instance)
 {
 	int i = 0;
 	int ret = 0;
-	bool control_cmd = false;
 	struct fimc_is_hw_mcsc *hw_mcsc;
 	u32 dma_output_ids = 0;
 	u32 hwfc_output_ids = 0;
@@ -957,28 +946,20 @@ int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
 	hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
 
 	if (hw_mcsc->instance != instance) {
-		control_cmd = true;
-		msdbg_hw(2, "update_param: hw_ip->instance(%d), control_cmd(%d)\n",
-			instance, hw_ip, hw_mcsc->instance, control_cmd);
+		msdbg_hw(2, "update_param: hw_ip->instance(%d)\n",
+			instance, hw_ip, hw_mcsc->instance);
+		hw_mcsc->instance = instance;
 	}
 
-	if (control_cmd || (lindex & LOWBIT_OF(PARAM_MCS_INPUT))
-		|| (hindex & HIGHBIT_OF(PARAM_MCS_INPUT))
-		|| (test_bit(MCSC_RST_CHK, &mcsc_out_st))) {
-		ret = fimc_is_hw_mcsc_otf_input(hw_ip, &param->input, instance);
-		ret = fimc_is_hw_mcsc_dma_input(hw_ip, &param->input, instance);
-	}
+	ret |= fimc_is_hw_mcsc_otf_input(hw_ip, &param->input, instance);
+	ret |= fimc_is_hw_mcsc_dma_input(hw_ip, &param->input, instance);
 
 	fimc_is_hw_mcsc_update_djag_register(hw_ip, param, instance);	/* for DZoom */
 
 	for (i = MCSC_OUTPUT0; i < cap->max_output; i++) {
-		if (control_cmd || (lindex & LOWBIT_OF((i + PARAM_MCS_OUTPUT0)))
-				|| (hindex & HIGHBIT_OF((i + PARAM_MCS_OUTPUT0)))
-				|| (test_bit(MCSC_RST_CHK, &mcsc_out_st))) {
-			ret = fimc_is_hw_mcsc_update_register(hw_ip, param, i, instance);
-			fimc_is_scaler_set_wdma_pri(hw_ip->regs, i, param->output[i].plane);	/* FIXME: */
+		ret |= fimc_is_hw_mcsc_update_register(hw_ip, param, i, instance);
+		fimc_is_scaler_set_wdma_pri(hw_ip->regs, i, param->output[i].plane);	/* FIXME: */
 
-		}
 		/* check the hwfc enable in all output */
 		if (param->output[i].hwfc)
 			hwfc_output_ids |= (1 << i);
@@ -988,7 +969,7 @@ int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
 	}
 
 	/* setting for hwfc */
-	ret = fimc_is_hw_mcsc_hwfc_mode(hw_ip, &param->input, hwfc_output_ids, dma_output_ids, instance);
+	ret |= fimc_is_hw_mcsc_hwfc_mode(hw_ip, &param->input, hwfc_output_ids, dma_output_ids, instance);
 
 	hw_mcsc->prev_hwfc_output_ids = hwfc_output_ids;
 
@@ -1627,7 +1608,7 @@ int fimc_is_hw_mcsc_poly_phase(struct fimc_is_hw_ip *hw_ip, struct param_mcs_inp
 
 	sensor_position = hw_ip->hardware->sensor_position[instance];
 	setfile = hw_mcsc->cur_setfile[sensor_position][instance];
-#if defined(USE_UVSP_CAC)
+#if defined(MCSC_COEF_USE_TUNING)
 	sc_coef = &setfile->sc_coef;
 #else
 	sc_coef = NULL;
@@ -1703,7 +1684,7 @@ int fimc_is_hw_mcsc_post_chain(struct fimc_is_hw_ip *hw_ip, struct param_mcs_inp
 
 	sensor_position = hw_ip->hardware->sensor_position[instance];
 	setfile = hw_mcsc->cur_setfile[sensor_position][instance];
-#if defined(USE_UVSP_CAC)
+#if defined(MCSC_COEF_USE_TUNING)
 	sc_coef = &setfile->sc_coef;
 #else
 	sc_coef = NULL;
@@ -2075,12 +2056,16 @@ void fimc_is_hw_bchs_clamp(void __iomem *base_addr, u32 output_id, int yuv,
 		c_min = 16;
 	}
 #endif
-	if (sc_bchs)
+	if (sc_bchs) {
 		fimc_is_scaler_set_bchs_clamp(base_addr, output_id,
 			sc_bchs->y_max, sc_bchs->y_min,
 			sc_bchs->c_max, sc_bchs->c_min);
-	else
+		dbg_hw(2, "[Y:max(%d),min(%d)][C:max(%d),min(%d)]\n",
+			sc_bchs->y_max, sc_bchs->y_min,
+			sc_bchs->c_max, sc_bchs->c_min);
+	} else {
 		fimc_is_scaler_set_bchs_clamp(base_addr, output_id, y_max, y_min, c_max, c_min);
+	}
 }
 
 int fimc_is_hw_mcsc_output_yuvrange(struct fimc_is_hw_ip *hw_ip, struct param_mcs_output *output,
@@ -2120,7 +2105,7 @@ int fimc_is_hw_mcsc_output_yuvrange(struct fimc_is_hw_ip *hw_ip, struct param_mc
 
 	sensor_position = hw_ip->hardware->sensor_position[instance];
 	setfile = hw_mcsc->cur_setfile[sensor_position][instance];
-#if defined(USE_UVSP_CAC)
+#if defined(MCSC_COEF_USE_TUNING)
 	sc_bchs = &setfile->sc_bchs[yuv];
 #else
 	sc_bchs = NULL;
@@ -2147,6 +2132,7 @@ int fimc_is_hw_mcsc_output_yuvrange(struct fimc_is_hw_ip *hw_ip, struct param_mc
 		fimc_is_hw_bchs_range(hw_ip->regs, output_id, yuv);
 		msdbg_hw(2, "YUV range set default settings\n", instance, hw_ip);
 	}
+	fimc_is_hw_bchs_clamp(hw_ip->regs, output_id, yuv, sc_bchs);
 #else
 	fimc_is_hw_bchs_range(hw_ip->regs, output_id, yuv);
 	fimc_is_hw_bchs_clamp(hw_ip->regs, output_id, yuv, sc_bchs);
@@ -2696,6 +2682,7 @@ void fimc_is_hw_mcsc_set_size_for_uvsp(struct fimc_is_hardware *hardware,
 	int hw_slot = -1;
 	struct fimc_is_hw_ip *hw_ip;
 	struct fimc_is_hw_mcsc *hw_mcsc;
+	struct fimc_is_hw_mcsc_cap *cap;
 	struct is_region *region;
 	struct taa_param *param;
 	struct camera2_shot_ext *shot_ext;
@@ -2727,6 +2714,12 @@ void fimc_is_hw_mcsc_set_size_for_uvsp(struct fimc_is_hardware *hardware,
 		sdbg_hw(2, "[F:%d] shot_ext(NULL)\n", hw_ip, frame->fcount);
 		return;
 	}
+
+	hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
+	cap = GET_MCSC_HW_CAP(hw_ip);
+
+	if (cap->uvsp != MCSC_CAP_SUPPORT)
+		return;
 
 	msdbg_hw(2, "[F:%d]: set_size_for_uvsp: binning_r(%d,%d), crop_taa(%d,%d), bds(%d,%d)\n",
 		frame->instance, hw_ip, frame->fcount,
@@ -2794,7 +2787,7 @@ void fimc_is_hw_mcsc_set_ni(struct fimc_is_hardware *hardware, struct fimc_is_fr
 	if (valid_hw_slot_id(hw_slot)) {
 		hw_ip = &hardware->hw_ip[hw_slot];
 		hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
-		if (hw_mcsc && frame->shot) {
+		if (test_bit(HW_OPEN, &hw_ip->state) && hw_mcsc && frame->shot) {
 			hw_mcsc->ni_udm[index] = frame->shot->udm.ni;
 			msdbg_hw(2, "set_ni: [F:%d], %d,%d,%d -> %d,%d,%d\n", instance, hw_ip, frame->fcount,
 				frame->shot->udm.ni.currentFrameNoiseIndex,
@@ -2811,7 +2804,7 @@ void fimc_is_hw_mcsc_set_ni(struct fimc_is_hardware *hardware, struct fimc_is_fr
 	if (valid_hw_slot_id(hw_slot)) {
 		hw_ip = &hardware->hw_ip[hw_slot];
 		hw_mcsc = (struct fimc_is_hw_mcsc *)hw_ip->priv_info;
-		if (hw_mcsc && frame->shot) {
+		if (test_bit(HW_OPEN, &hw_ip->state) && hw_mcsc && frame->shot) {
 			hw_mcsc->ni_udm[index] = frame->shot->udm.ni;
 			msdbg_hw(2, "set_ni: [F:%d], %d,%d,%d -> %d,%d,%d\n", instance, hw_ip, frame->fcount,
 				frame->shot->udm.ni.currentFrameNoiseIndex,
@@ -2829,8 +2822,6 @@ static int fimc_is_hw_mcsc_get_meta(struct fimc_is_hw_ip *hw_ip,
 {
 	int ret = 0;
 	struct fimc_is_hw_mcsc *hw_mcsc;
-	struct fimc_is_hw_mcsc_cap *cap;
-	int i;
 
 	if (unlikely(!frame)) {
 		mserr_hw("get_meta: frame is null", atomic_read(&hw_ip->instance), hw_ip);
@@ -2846,19 +2837,9 @@ static int fimc_is_hw_mcsc_get_meta(struct fimc_is_hw_ip *hw_ip,
 		return -EINVAL;
 	}
 
-	cap = GET_MCSC_HW_CAP(hw_ip);
-	if (!cap) {
-		err_hw("failed to get hw_mcsc_cap(%p)", cap);
-		return -EINVAL;
-	}
-
 	fimc_is_scaler_get_ysum_result(hw_ip->regs,
 		&frame->shot->udm.scaler.ysumdata.higher_ysum_value,
 		&frame->shot->udm.scaler.ysumdata.lower_ysum_value);
-
-	for (i = MCSC_OUTPUT0; i < cap->max_output; i++)
-		fimc_is_scaler_get_flip_mode(hw_ip->regs, i,
-			&frame->shot_ext->mcsc_flip_result[i]);
 
 	return ret;
 }
@@ -2868,7 +2849,6 @@ int fimc_is_hw_mcsc_restore(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	int ret = 0;
 	struct fimc_is_hw_mcsc *hw_mcsc;
 	struct is_param_region *param;
-	u32 lindex, hindex;
 
 	BUG_ON(!hw_ip);
 
@@ -2877,13 +2857,10 @@ int fimc_is_hw_mcsc_restore(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	fimc_is_hw_mcsc_reset(hw_ip);
 
 	param = hw_mcsc->back_param;
-	lindex = hw_mcsc->back_lindex;
-	hindex = hw_mcsc->back_hindex;
 	param->tpu.config.tdnr_bypass = true;
 
 	/* setting for MCSC */
-	fimc_is_hw_mcsc_update_param(hw_ip, &param->mcs,
-			lindex, hindex, instance);
+	fimc_is_hw_mcsc_update_param(hw_ip, &param->mcs, instance);
 	info_hw("[RECOVERY]: mcsc update param\n");
 
 	/* setting for TDNR */
@@ -2932,7 +2909,6 @@ int fimc_is_hw_mcsc_probe(struct fimc_is_hw_ip *hw_ip, struct fimc_is_interface 
 	hw_ip->itf  = itf;
 	hw_ip->itfc = itfc;
 	atomic_set(&hw_ip->fcount, 0);
-	hw_ip->internal_fcount = 0;
 	hw_ip->is_leader = true;
 	atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 	atomic_set(&hw_ip->rsccount, 0);

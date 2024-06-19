@@ -1243,8 +1243,6 @@ int fimc_is_video_probe(struct fimc_is_video *video,
 
 	vref_init(video);
 	mutex_init(&video->lock);
-	sema_init(&video->smp_multi_input, 1);
-	video->try_smp		= false;
 	snprintf(video->vd.name, sizeof(video->vd.name), "%s", video_name);
 	video->id		= video_number;
 	video->vb2_mem_ops	= mem->vb2_mem_ops;
@@ -1292,6 +1290,11 @@ int fimc_is_video_open(struct fimc_is_video_ctx *vctx,
 	if (!(vctx->state & BIT(FIMC_IS_VIDEO_CLOSE))) {
 		mverr("already open(%lX)", vctx, video, vctx->state);
 		return -EEXIST;
+	}
+
+	if (atomic_read(&video->refcount) == 1) {
+		sema_init(&video->smp_multi_input, 1);
+		video->try_smp		= false;
 	}
 
 	queue = GET_QUEUE(vctx);
@@ -1736,7 +1739,7 @@ int fimc_is_video_prepare(struct file *file,
 	struct v4l2_buffer *buf)
 {
 	int ret = 0;
-	int index = 0;
+	unsigned int index = 0;
 	struct fimc_is_device_ischain *device;
 	struct fimc_is_queue *queue;
 	struct vb2_queue *vbq;
@@ -2013,6 +2016,19 @@ int fimc_is_video_s_ctrl(struct file *file,
 			goto p_err;
 		}
 		break;
+	case V4L2_CID_IS_SECURE_MODE:
+	{
+		u32 scenario;
+		struct fimc_is_core *core;
+
+		scenario = (ctrl->value & FIMC_IS_SCENARIO_MASK) >> FIMC_IS_SCENARIO_SHIFT;
+		core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
+		if (core && scenario == FIMC_IS_SCENARIO_SECURE) {
+			mvinfo("[SCENE_MODE] SECURE scenario(%d) was detected\n", device, video, scenario);
+			core->scenario = scenario;
+		}
+		break;
+	}
 	case V4L2_CID_IS_SET_SETFILE:
 	{
 		u32 scenario;
@@ -2056,6 +2072,9 @@ int fimc_is_video_s_ctrl(struct file *file,
 	case V4L2_CID_IS_DVFS_CLUSTER1:
 		fimc_is_resource_ioctl(resourcemgr, ctrl);
 		break;
+	case V4L2_CID_IS_DVFS_CLUSTER2:
+		/* There is nothing to set in Ramen */
+		break;
 	case V4L2_CID_IS_DEBUG_SYNC_LOG:
 		fimc_is_logsync(device->interface, ctrl->value, IS_MSG_TEST_SYNC_LOG);
 		break;
@@ -2094,9 +2113,27 @@ int fimc_is_video_s_ctrl(struct file *file,
 			break;
 		}
 		break;
+#ifdef CONFIG_VENDER_MCD_V2
+	case V4L2_CID_IS_OPENING_HINT:
+	{
+		/* Don't use in Ramen*/
+		break;
+	}
+	case V4L2_CID_IS_CLOSING_HINT:
+	{
+		/* Don't use in Ramen*/
+		break;
+	}
+#endif
 	case VENDER_S_CTRL:
 		/* This s_ctrl is needed to skip, when the s_ctrl id was found. */
 		break;
+#if defined(ENABLE_TUNING)
+	case V4L2_CID_IS_S_TUNING_CONFIG:
+		device->hardware->tuning_config = (u32)ctrl->value;
+		info("%s: tuning_config val(0x%x)\n", __func__, (u32)ctrl->value);
+		break;
+#endif
 	default:
 		mverr("unsupported ioctl(0x%X)", vctx, video, ctrl->id);
 		ret = -EINVAL;

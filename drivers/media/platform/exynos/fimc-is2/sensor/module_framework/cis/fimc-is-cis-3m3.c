@@ -57,6 +57,14 @@ static const u32 *sensor_3m3_setfile_sizes;
 static const struct sensor_pll_info_compact **sensor_3m3_pllinfos;
 static u32 sensor_3m3_max_setfile_num;
 
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_3m3_cis_set_mipi_clock(struct v4l2_subdev *subdev)
+{
+	int ret = 0;
+	return ret;
+}
+#endif
+
 static void sensor_3m3_set_integration_max_margin(u32 mode, cis_shared_data *cis_data)
 {
 	FIMC_BUG_VOID(!cis_data);
@@ -255,6 +263,10 @@ int sensor_3m3_cis_init(struct v4l2_subdev *subdev)
 	cis->cis_data->cur_height = SENSOR_3M3_MAX_HEIGHT;
 	cis->cis_data->low_expo_start = 33000;
 	cis->need_mode_change = false;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 
 	sensor_3m3_cis_data_calculation(sensor_3m3_pllinfos[setfile_index], cis->cis_data);
 	sensor_3m3_set_integration_max_margin(setfile_index, cis->cis_data);
@@ -473,8 +485,8 @@ int sensor_3m3_cis_update_crop_region(struct v4l2_subdev *subdev)
 
 	fimc_is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
 
-	dummy_flag = cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR];
-	crop_num = cal_buf[FROM_REAR2_IMAGE_CROP_NUM_ADDR];
+	dummy_flag = cal_buf[ROM_REAR2_FLAG_DUMMY_ADDR];
+	crop_num = cal_buf[ROM_REAR2_IMAGE_CROP_NUM_ADDR];
 
 	info("[%s] dummy_flag[%x], crop_num[%x]", __func__, dummy_flag, crop_num);
 
@@ -563,6 +575,10 @@ int sensor_3m3_cis_mode_change(struct v4l2_subdev *subdev, u32 mode)
 
 #if 0
 	sensor_3m3_cis_data_calculation(sensor_3m3_pllinfos[mode], cis->cis_data);
+#endif
+
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
 #endif
 
 	sensor_3m3_cis_set_paf_stat_enable(mode, cis->cis_data);
@@ -810,6 +826,9 @@ int sensor_3m3_cis_stream_on(struct v4l2_subdev *subdev)
 	cis_data = cis->cis_data;
 
 	dbg_sensor(1, "[MOD:D:%d] %s\n", cis->id, __func__);
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	sensor_3m3_cis_set_mipi_clock(subdev);
+#endif
 	I2C_MUTEX_LOCK(cis->i2c_lock);
 	ret = sensor_3m3_cis_group_param_hold_func(subdev, 0x00);
 	if (ret < 0)
@@ -1940,6 +1959,13 @@ int sensor_3m3_cis_get_max_digital_gain(struct v4l2_subdev *subdev, u32 *max_dga
 	return ret;
 }
 
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+static int sensor_3m3_cis_update_mipi_info(struct v4l2_subdev *subdev)
+{
+	return 0;
+}
+#endif
+
 #ifdef CAMERA_REAR2_SENSOR_SHIFT_CROP
 static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, struct fimc_is_sensor_cfg *select)
 {
@@ -1970,8 +1996,8 @@ static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 	fimc_is_sec_get_cal_buf(&cal_buf, ROM_ID_REAR);
 
 #ifdef TEST_SHIFT_CROP
-	cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR] = 7;
-	cal_buf[FROM_REAR2_IMAGE_CROP_NUM_ADDR] = test_crop_num;
+	cal_buf[ROM_REAR2_FLAG_DUMMY_ADDR] = 7;
+	cal_buf[ROM_REAR2_IMAGE_CROP_NUM_ADDR] = test_crop_num;
 
 	if (test_crop_num == 9)
 		test_crop_num = 1;
@@ -1979,8 +2005,8 @@ static int sensor_3m3_cis_update_pdaf_tail_size(struct v4l2_subdev *subdev, stru
 		test_crop_num++;
 #endif
 
-	dummy_flag = cal_buf[FROM_REAR2_FLAG_DUMMY_ADDR];
-	crop_num = cal_buf[FROM_REAR2_IMAGE_CROP_NUM_ADDR];
+	dummy_flag = cal_buf[ROM_REAR2_FLAG_DUMMY_ADDR];
+	crop_num = cal_buf[ROM_REAR2_IMAGE_CROP_NUM_ADDR];
 
 	info("[%s] dummy_flag[%x], crop_num[%x]", __func__, dummy_flag, crop_num);
 
@@ -2074,10 +2100,14 @@ static struct fimc_is_cis_ops cis_ops = {
 	.cis_wait_streamon = sensor_cis_wait_streamon,
 	.cis_data_calculation = sensor_3m3_cis_data_calc,
 	.cis_set_adjust_sync = sensor_3m3_cis_set_adjust_sync,
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	.cis_update_mipi_info = sensor_3m3_cis_update_mipi_info,
+#endif
 #ifdef CAMERA_REAR2_SENSOR_SHIFT_CROP
 	.cis_update_pdaf_tail_size = sensor_3m3_cis_update_pdaf_tail_size,
 #endif
 	.cis_check_rev = sensor_3m3_cis_check_rev,
+	.cis_set_initial_exposure = sensor_cis_set_initial_exposure,
 };
 
 static int cis_3m3_probe(struct i2c_client *client,
@@ -2143,6 +2173,10 @@ static int cis_3m3_probe(struct i2c_client *client,
 	cis->client = client;
 	sensor_peri->module->client = cis->client;
 	cis->ctrl_delay = N_PLUS_TWO_FRAME;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+	cis->mipi_clock_index_cur = CAM_MIPI_NOT_INITIALIZED;
+	cis->mipi_clock_index_new = CAM_MIPI_NOT_INITIALIZED;
+#endif
 	cis->cis_data = kzalloc(sizeof(cis_shared_data), GFP_KERNEL);
 	if (!cis->cis_data) {
 		err("cis_data is NULL");
@@ -2208,6 +2242,9 @@ static int cis_3m3_probe(struct i2c_client *client,
 		err("setfile index read fail(%d), take default setfile!!", ret);
 		setfile = "default";
 	}
+
+	cis->use_initial_ae = of_property_read_bool(dnode, "use_initial_ae");
+	probe_info("%s use initial_ae(%d)\n", __func__, cis->use_initial_ae);
 
 	v4l2_i2c_subdev_init(subdev_cis, client, &subdev_ops);
 	v4l2_set_subdevdata(subdev_cis, cis);

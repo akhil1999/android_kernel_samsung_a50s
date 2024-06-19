@@ -123,10 +123,7 @@ struct hw_mcsc_setfile {
 	 * 1 : SCALER_OUTPUT_YUV_RANGE_NARROW
 	 */
 	struct scaler_setfile_contents	sc_base[2];
-#ifdef MCSC_DNR_USE_TUNING
 	struct tdnr_setfile_contents	tdnr_contents;
-#endif
-#ifdef MCSC_USE_DEJAG_TUNING_PARAM
 	/* Setfile tuning parameters for DJAG (Lhotse)
 	 * 0 : Scaling ratio = x1.0
 	 * 1 : Scaling ratio = x1.1~x1.4
@@ -134,14 +131,11 @@ struct hw_mcsc_setfile {
 	 * 3 : Scaling ratio = x2.1~
 	 */
 	struct djag_setfile_contents	djag[MAX_SCALINGRATIOINDEX_DEPENDED_CONFIGS];
-#endif
-#if defined(USE_UVSP_CAC)
 	struct scaler_bchs_clamp_cfg	sc_bchs[2];	/* 0: YUV_FULL, 1: YUV_NARROW */
 	struct scaler_coef_cfg		sc_coef;
 	struct djag_wb_thres_cfg	djag_wb[MAX_SCALINGRATIOINDEX_DEPENDED_CONFIGS];
 	struct cac_setfile_contents	cac;
 	struct uvsp_setfile_contents	uvsp;
-#endif
 };
 
 /**
@@ -219,8 +213,6 @@ struct fimc_is_hw_mcsc {
 
 	/* for full otf overflow recovery */
 	struct is_param_region	*back_param;
-	u32			back_lindex;
-	u32			back_hindex;
 };
 
 int fimc_is_hw_mcsc_probe(struct fimc_is_hw_ip *hw_ip, struct fimc_is_interface *itf,
@@ -229,7 +221,7 @@ void fimc_is_hw_mcsc_get_force_block_control(struct fimc_is_hw_ip *hw_ip, u32 ip
 	u32 *input_sel, bool *en);
 
 int fimc_is_hw_mcsc_update_param(struct fimc_is_hw_ip *hw_ip,
-	struct mcs_param *param, u32 lindex, u32 hindex, u32 instance);
+	struct mcs_param *param, u32 instance);
 void fimc_is_hw_mcsc_frame_done(struct fimc_is_hw_ip *hw_ip, struct fimc_is_frame *frame,
 	int done_type);
 int fimc_is_hw_mcsc_reset(struct fimc_is_hw_ip *hw_ip);

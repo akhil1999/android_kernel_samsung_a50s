@@ -317,7 +317,7 @@ struct fimc_is_sensor_ops module_virtual_ops = {
 };
 
 #ifdef CONFIG_OF
-static int sensor_virtual_power_setpin(struct platform_device *pdev,
+static int sensor_virtual_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
 	SET_PIN_INIT(pdata, SENSOR_SCENARIO_NORMAL, GPIO_SCENARIO_ON);
@@ -358,7 +358,7 @@ static int __init sensor_module_virtual_probe(struct platform_device *pdev)
 	dev = &pdev->dev;
 
 #ifdef CONFIG_OF
-	fimc_is_sensor_module_parse_dt(pdev, sensor_virtual_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_virtual_power_setpin);
 #endif
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];

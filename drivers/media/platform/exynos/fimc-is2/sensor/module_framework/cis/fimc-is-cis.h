@@ -25,11 +25,6 @@ struct sensor_pll_info_compact {
 	u32 line_length_pck;
 };
 
-struct sensor_crop_info {
-	u32 out_crop_x;
-	u32 out_crop_y;
-};
-
 struct sensor_pll_info {
 	u32 ext_clk;
 	u32 vt_pix_clk_div;
@@ -77,11 +72,5 @@ int sensor_cis_wait_streamoff(struct v4l2_subdev *subdev);
 int sensor_cis_wait_streamon(struct v4l2_subdev *subdev);
 
 int sensor_cis_set_initial_exposure(struct v4l2_subdev *subdev);
-int sensor_cis_factory_test(struct v4l2_subdev *subdev);
 
-/* OTP function */
-void sensor_cis_otp_data_set(char *data, char *name, u32 size, u32 value);
-u16 sensor_cis_otp_get_crc16(char *data, int count);
-int sensor_cis_otp_read_file(const char *file_name, const void *data, unsigned long size);
-int sensor_cis_otp_write_file(const char *file_name, const void *data, unsigned long size);
 #endif

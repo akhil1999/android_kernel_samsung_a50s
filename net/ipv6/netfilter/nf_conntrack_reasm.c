@@ -150,13 +150,9 @@ static inline u8 ip6_frag_ecn(const struct ipv6hdr *ipv6h)
 	return 1 << (ipv6_get_dsfield(ipv6h) & INET_ECN_MASK);
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
-static void nf_ct_frag6_expire(unsigned long t)
-#else
 static void nf_ct_frag6_expire(struct timer_list *t)
-#endif
 {
-	struct inet_frag_queue *frag = from_timer(frag, (struct timer_list *)t, timer);
+	struct inet_frag_queue *frag = from_timer(frag, t, timer);
 	struct frag_queue *fq;
 	struct net *net;
 
@@ -576,10 +572,6 @@ int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 	skb_set_transport_header(skb, fhoff);
 	hdr = ipv6_hdr(skb);
 	fhdr = (struct frag_hdr *)skb_transport_header(skb);
-
-	if (skb->len - skb_network_offset(skb) < IPV6_MIN_MTU &&
-	    fhdr->frag_off & htons(IP6_MF))
-		return -EINVAL;
 
 	skb_orphan(skb);
 	fq = fq_find(net, fhdr->identification, user, hdr,

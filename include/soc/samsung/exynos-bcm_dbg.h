@@ -232,6 +232,10 @@ struct os_system_func {
 };
 #endif
 
+#ifdef CONFIG_UH_RKP
+extern struct exynos_bcm_dbg_data *bcm_dbg_data;
+#endif
+
 #ifdef CONFIG_EXYNOS_BCM_DBG
 int exynos_bcm_dbg_ipc_send_data(enum exynos_bcm_dbg_ipc_type ipc_type,
 				struct exynos_bcm_dbg_data *data,
@@ -247,9 +251,9 @@ void exynos_bcm_dbg_stop(unsigned int bcm_stop_owner);
 #endif
 
 #ifdef CONFIG_EXYNOS_BCM_DBG_GNR
-int __nocfi exynos_bcm_dbg_load_bin(void);
+int exynos_bcm_dbg_load_bin(void);
 #else
-#define exynos_bcm_dbg_load_bin() do {} while (0)
+#define exynos_bcm_dbg_load_bin(a) do {} while (0)
 #endif
 
 #endif	/* __EXYNOS_BCM_DBG_H_ */

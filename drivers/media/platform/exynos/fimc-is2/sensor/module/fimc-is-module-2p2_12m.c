@@ -84,7 +84,7 @@ static const struct v4l2_subdev_ops subdev_ops = {
 };
 
 #ifdef CONFIG_OF
-static int sensor_2p2_12m_power_setpin(struct platform_device *pdev,
+static int sensor_2p2_12m_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
 	return 0;
@@ -114,7 +114,7 @@ int sensor_2p2_12m_probe(struct platform_device *pdev)
 	dev = &pdev->dev;
 
 #ifdef CONFIG_OF
-	fimc_is_sensor_module_parse_dt(pdev, sensor_2p2_12m_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_2p2_12m_power_setpin);
 #endif
 
 	pdata = dev_get_platdata(dev);

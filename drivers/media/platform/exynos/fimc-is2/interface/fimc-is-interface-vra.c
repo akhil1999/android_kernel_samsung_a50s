@@ -116,19 +116,19 @@ static void fimc_is_lib_vra_callback_final_output_ready(u32 instance,
 	}
 #endif
 
-#ifdef ENABLE_VRA_FDONE_WITH_CALLBACK
-	spin_lock_irqsave(&lib_vra->fdone_cb_lock, lib_vra->fdone_cb_flag);
+#ifdef ENABLE_REPROCESSING_FD
+	spin_lock_irqsave(&lib_vra->reprocess_fd_lock, lib_vra->reprocess_fd_flag);
 	set_bit(instance, &lib_vra->done_vra_callback_out_ready);
 
 	if (test_bit(instance, &lib_vra->done_vra_hw_intr)
 		&& test_bit(instance, &lib_vra->done_vra_callback_out_ready)) {
 		clear_bit(instance, &lib_vra->done_vra_callback_out_ready);
 		clear_bit(instance, &lib_vra->done_vra_hw_intr);
-		spin_unlock_irqrestore(&lib_vra->fdone_cb_lock, lib_vra->fdone_cb_flag);
+		spin_unlock_irqrestore(&lib_vra->reprocess_fd_lock, lib_vra->reprocess_fd_flag);
 		fimc_is_hardware_frame_done(lib_vra->hw_ip, NULL, -1,
 			FIMC_IS_HW_CORE_END, IS_SHOT_SUCCESS, true);
 	} else {
-		spin_unlock_irqrestore(&lib_vra->fdone_cb_lock, lib_vra->fdone_cb_flag);
+		spin_unlock_irqrestore(&lib_vra->reprocess_fd_lock, lib_vra->reprocess_fd_flag);
 	}
 #endif
 }
@@ -199,7 +199,7 @@ static void fimc_is_lib_vra_callback_post_detect_ready(u32 instance,
 	}
 }
 
-int __nocfi fimc_is_lib_vra_set_post_detect_output(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_set_post_detect_output(struct fimc_is_lib_vra *lib_vra,
 	unsigned int hfd_enable, u32 instance)
 {
 	enum api_vra_type status = VRA_NO_ERROR;
@@ -278,7 +278,7 @@ int fimc_is_lib_vra_invoke_contol_event(struct fimc_is_lib_vra *lib_vra)
 
 	dbg_lib(3, "lib_vra_invoke_contol_event: type(%d)\n", lib_vra->ctl_task_type);
 
-	if (in_interrupt()) {
+	if (in_irq()) {
 		spin_lock(&lib_vra->ctl_lock);
 		status = CALL_VRAOP(lib_vra, on_control_task_event,
 					lib_vra->fr_work_heap);
@@ -303,7 +303,7 @@ int fimc_is_lib_vra_invoke_contol_event(struct fimc_is_lib_vra *lib_vra)
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_invoke_fwalgs_event(struct fimc_is_lib_vra *lib_vra)
+int fimc_is_lib_vra_invoke_fwalgs_event(struct fimc_is_lib_vra *lib_vra)
 {
 	enum api_vra_type status = VRA_NO_ERROR;
 
@@ -314,7 +314,7 @@ int __nocfi fimc_is_lib_vra_invoke_fwalgs_event(struct fimc_is_lib_vra *lib_vra)
 
 	dbg_lib(3, "lib_vra_invoke_fwalgs_event: type(%d)\n", lib_vra->algs_task_type);
 
-	if (in_interrupt()) {
+	if (in_irq()) {
 		spin_lock(&lib_vra->algs_lock);
 		status = CALL_VRAOP(lib_vra, on_fw_algs_task_event,
 					lib_vra->fr_work_heap);
@@ -339,7 +339,7 @@ int __nocfi fimc_is_lib_vra_invoke_fwalgs_event(struct fimc_is_lib_vra *lib_vra)
 	return 0;
 }
 
-void __nocfi fimc_is_lib_vra_task_work(struct kthread_work *work)
+void fimc_is_lib_vra_task_work(struct kthread_work *work)
 {
 	struct fimc_is_task_work *cur_work;
 	struct fimc_is_lib_vra *lib_vra;
@@ -431,7 +431,7 @@ void fimc_is_lib_vra_set_event_fw_algs(u32 event_type)
 	return;
 }
 
-int __nocfi fimc_is_lib_vra_alloc_memory(struct fimc_is_lib_vra *lib_vra, ulong dma_addr)
+int fimc_is_lib_vra_alloc_memory(struct fimc_is_lib_vra *lib_vra, ulong dma_addr)
 {
 	int index;
 	u32 size;
@@ -543,10 +543,12 @@ int fimc_is_lib_vra_free_memory(struct fimc_is_lib_vra *lib_vra)
 	for (index = 0; index < VRA_TOTAL_SENSORS; index++)
 		fimc_is_free_vra(lib_vra->frame_desc_heap[index]);
 
+	g_lib_vra = NULL;
+
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_init_frame_work(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_init_frame_work(struct fimc_is_lib_vra *lib_vra,
 	void __iomem *base_addr, enum fimc_is_lib_vra_input_type input_type)
 {
 	int ret;
@@ -572,8 +574,8 @@ int __nocfi fimc_is_lib_vra_init_frame_work(struct fimc_is_lib_vra *lib_vra,
 	spin_lock_init(&lib_vra->ctl_lock);
 	spin_lock_init(&lib_vra->algs_lock);
 	spin_lock_init(&lib_vra->intr_lock);
-#ifdef ENABLE_VRA_FDONE_WITH_CALLBACK
-	spin_lock_init(&lib_vra->fdone_cb_lock);
+#ifdef ENABLE_REPROCESSING_FD
+	spin_lock_init(&lib_vra->reprocess_fd_lock);
 #endif
 	for (i = 0; i < VRA_TOTAL_SENSORS; i++) {
 		spin_lock_init(&lib_vra->af_fd_slock[i]);
@@ -656,7 +658,7 @@ free:
 	return ret;
 }
 
-int __nocfi fimc_is_lib_vra_init_frame_desc(struct fimc_is_lib_vra *lib_vra, u32 instance)
+int fimc_is_lib_vra_init_frame_desc(struct fimc_is_lib_vra *lib_vra, u32 instance)
 {
 	enum api_vra_type status;
 	int ret = 0;
@@ -764,7 +766,7 @@ int fimc_is_lib_vra_frame_desc_init(struct fimc_is_lib_vra *lib_vra,
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_set_orientation(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_set_orientation(struct fimc_is_lib_vra *lib_vra,
 	u32 scaler_orientation, u32 instance)
 {
 	enum api_vra_type status = VRA_NO_ERROR;
@@ -840,7 +842,7 @@ int __nocfi fimc_is_lib_vra_set_orientation(struct fimc_is_lib_vra *lib_vra,
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_new_frame(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_new_frame(struct fimc_is_lib_vra *lib_vra,
 	unsigned char *buffer_kva, unsigned char *buffer_dva, u32 instance)
 {
 	enum api_vra_type status = VRA_NO_ERROR;
@@ -876,7 +878,7 @@ int __nocfi fimc_is_lib_vra_new_frame(struct fimc_is_lib_vra *lib_vra,
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_handle_interrupt(struct fimc_is_lib_vra *lib_vra, u32 id)
+int fimc_is_lib_vra_handle_interrupt(struct fimc_is_lib_vra *lib_vra, u32 id)
 {
 	enum api_vra_type result;
 
@@ -941,7 +943,7 @@ int fimc_is_lib_vra_stop_instance(struct fimc_is_lib_vra *lib_vra, u32 instance)
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_stop(struct fimc_is_lib_vra *lib_vra)
+int fimc_is_lib_vra_stop(struct fimc_is_lib_vra *lib_vra)
 {
 	int ret;
 	enum api_vra_type result;
@@ -977,7 +979,7 @@ int __nocfi fimc_is_lib_vra_stop(struct fimc_is_lib_vra *lib_vra)
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_frame_work_final(struct fimc_is_lib_vra *lib_vra)
+int fimc_is_lib_vra_frame_work_final(struct fimc_is_lib_vra *lib_vra)
 {
 	enum api_vra_type result;
 	int ret;
@@ -1021,7 +1023,7 @@ int __nocfi fimc_is_lib_vra_frame_work_final(struct fimc_is_lib_vra *lib_vra)
 }
 
 static int fimc_is_lib_vra_update_dm(struct fimc_is_lib_vra *lib_vra, u32 instance,
-	struct camera2_stats_dm *dm, struct vra_ext_meta *vra_ext)
+	struct camera2_stats_dm *dm)
 {
 	int face_num;
 	struct api_vra_face_base_str *base;
@@ -1086,32 +1088,6 @@ static int fimc_is_lib_vra_update_dm(struct fimc_is_lib_vra *lib_vra, u32 instan
 			dm->faceLandmarks[face_num][3],
 			dm->faceLandmarks[face_num][4],
 			dm->faceLandmarks[face_num][5]);
-
-		vra_ext->facialScore[face_num].left_eye = facial->scores[VRA_FF_SCORE_LEFT_EYE];
-		vra_ext->facialScore[face_num].right_eye = facial->scores[VRA_FF_SCORE_RIGHT_EYE];
-		vra_ext->facialScore[face_num].mouth = facial->scores[VRA_FF_SCORE_MOUTH];
-		vra_ext->facialScore[face_num].smile = facial->scores[VRA_FF_SCORE_SMILE];
-		vra_ext->facialScore[face_num].left_blink = facial->scores[VRA_FF_SCORE_BLINK_LEFT];
-		vra_ext->facialScore[face_num].right_blink = facial->scores[VRA_FF_SCORE_BLINK_RIGHT];
-
-		dbg_lib(3, "lib_vra_update_dm: facial score(eye l:%d,r:%d mouth:%d smile:%d blink l:%d,r:%d)\n",
-			facial->scores[VRA_FF_SCORE_LEFT_EYE],
-			facial->scores[VRA_FF_SCORE_RIGHT_EYE],
-			facial->scores[VRA_FF_SCORE_MOUTH],
-			facial->scores[VRA_FF_SCORE_SMILE],
-			facial->scores[VRA_FF_SCORE_BLINK_LEFT],
-			facial->scores[VRA_FF_SCORE_BLINK_RIGHT]);
-
-		/* facial angle meta
-		 * Yaw: Front: 0, Semi-Profile: 45/315, Profile: 90/270
-		 * Roll: Front: 0~330 (unit:30), Semi-Profile/Profile: 0~270 (unit:90)
-		 */
-		vra_ext->facialAngle[face_num].yaw = base->yaw;
-		vra_ext->facialAngle[face_num].roll = base->rotation;
-
-		dbg_lib(3, "lib_vra_update_dm: facial angle(yaw:%d,roll:%d)\n",
-			base->yaw, base->rotation);
-
 	}
 
 	/* ToDo: Add error handler for detected face range */
@@ -1194,7 +1170,6 @@ int fimc_is_lib_vra_get_meta(struct fimc_is_lib_vra *lib_vra,
 	int ret = 0;
 	struct camera2_stats_ctl *stats_ctl;
 	struct camera2_stats_dm *stats_dm;
-	struct vra_ext_meta *vra_ext;
 
 	if (unlikely(!lib_vra)) {
 		err_lib("lib_vra is NULL");
@@ -1206,14 +1181,8 @@ int fimc_is_lib_vra_get_meta(struct fimc_is_lib_vra *lib_vra,
 		return -EINVAL;
 	}
 
-	if (unlikely(!frame->shot_ext)) {
-		err_lib("frame->shot_ext is NULL");
-		return -EINVAL;
-	}
-
 	stats_ctl = &frame->shot->ctl.stats;
 	stats_dm = &frame->shot->dm.stats;
-	vra_ext = &frame->shot_ext->vra_ext;
 
 	if (stats_ctl->faceDetectMode == FACEDETECT_MODE_OFF) {
 		stats_dm->faceDetectMode = FACEDETECT_MODE_OFF;
@@ -1232,7 +1201,7 @@ int fimc_is_lib_vra_get_meta(struct fimc_is_lib_vra *lib_vra,
 	}
 #endif
 	ret = fimc_is_lib_vra_update_dm(lib_vra, frame->instance,
-		stats_dm, vra_ext);
+		stats_dm);
 	if (ret) {
 		err_lib("lib_vra_update_dm is fail (%#x)", ret);
 		return -EINVAL;
@@ -1300,7 +1269,7 @@ void fimc_is_lib_vra_assert(void)
 	BUG_ON(1);
 }
 
-void __nocfi fimc_is_lib_vra_os_funcs(void)
+void fimc_is_lib_vra_os_funcs(void)
 {
 	struct fimc_is_lib_vra_os_system_funcs funcs;
 
@@ -1322,7 +1291,7 @@ void __nocfi fimc_is_lib_vra_os_funcs(void)
 	funcs.spin_lock_irqsave      = fimc_is_spin_lock_irqsave;
 	funcs.spin_unlock_irqrestore = fimc_is_spin_unlock_irqrestore;
 	funcs.lib_assert       = fimc_is_lib_vra_assert;
-	funcs.lib_in_interrupt = fimc_is_lib_in_interrupt;
+	funcs.lib_in_irq       = fimc_is_lib_in_irq;
 
 #ifdef ENABLE_FPSIMD_FOR_USER
 	fpsimd_get();
@@ -1450,7 +1419,7 @@ int fimc_is_lib_vra_otf_input(struct fimc_is_lib_vra *lib_vra,
 	return 0;
 }
 
-int __nocfi fimc_is_lib_vra_dma_input(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_dma_input(struct fimc_is_lib_vra *lib_vra,
 	struct vra_param *param, u32 instance, u32 fcount)
 {
 	enum api_vra_type status;
@@ -1654,7 +1623,7 @@ debug_info_s_param:
 }
 
 #ifdef ENABLE_VRA_CHANGE_SETFILE_PARSING
-int __nocfi fimc_is_lib_vra_copy_tune_set(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_copy_tune_set(struct fimc_is_lib_vra *lib_vra,
 	ulong addr, u32 size, u32 index, int flag, u32 instance_id)
 {
 	int ret = 0;
@@ -1682,7 +1651,7 @@ int __nocfi fimc_is_lib_vra_copy_tune_set(struct fimc_is_lib_vra *lib_vra,
 	return ret;
 }
 
-int __nocfi fimc_is_lib_vra_apply_tune_set(struct fimc_is_lib_vra *lib_vra,
+int fimc_is_lib_vra_apply_tune_set(struct fimc_is_lib_vra *lib_vra,
 	u32 index, u32 instance_id)
 {
 	int ret = 0;

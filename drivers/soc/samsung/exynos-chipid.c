@@ -22,20 +22,7 @@
 struct exynos_chipid_info exynos_soc_info;
 EXPORT_SYMBOL(exynos_soc_info);
 
-static long board_rev;
-
-static int __init get_revision(char *str)
-{
-	int res = 0;
-	res  = kstrtol(str, 16, &board_rev);
-	if (res)
-		pr_info("%s: Get Board Revision fail!!\n", __func__);
-	else
-		pr_info("Board Revision = 0x%x\n", board_rev);
-	return 0;
-}
-
-early_param("revision", get_revision);
+static const char *soc_ap_id;
 
 static const char * __init product_id_to_name(unsigned int product_id)
 {
@@ -193,7 +180,6 @@ void __init exynos_chipid_early_init(void)
 {
 	struct device_node *np;
 	const struct of_device_id *match;
-	void __iomem *reg;
 
 	if (exynos_soc_info.reg)
 		return;
@@ -206,12 +192,6 @@ void __init exynos_chipid_early_init(void)
 	exynos_soc_info.reg = of_iomap(np, 0);
 	if (!exynos_soc_info.reg)
 		panic("%s: failed to map registers\n", __func__);
-
-	reg = of_iomap(np, 1);
-	if (!reg)
-		pr_err("%s: can't get base of memsize\n", __func__);
-	else
-		exynos_soc_info.memsize = __raw_readq(reg);
 
 	exynos_chipid_get_chipid_info();
 }
@@ -241,6 +221,7 @@ static int __init exynos_chipid_probe(struct platform_device *pdev)
 		goto free_soc;
 
 	soc_dev_attr->soc_id = product_id_to_name(exynos_soc_info.product_id);
+	soc_ap_id = product_id_to_name(exynos_soc_info.product_id);
 	soc_dev = soc_device_register(soc_dev_attr);
 	if (IS_ERR(soc_dev))
 		goto free_rev;
@@ -282,32 +263,44 @@ static struct bus_type chipid_subsys = {
 	.dev_name = "chip-id",
 };
 
-static ssize_t chipid_product_id_show(struct device *dev,
-			         struct device_attribute *attr, char *buf)
+static ssize_t chipid_product_id_show(struct kobject *kobj,
+			         struct kobj_attribute *attr, char *buf)
 {
 	return snprintf(buf, 10, "%08X\n", exynos_soc_info.product_id);
 }
 
-static ssize_t chipid_unique_id_show(struct device *dev,
-			         struct device_attribute *attr, char *buf)
+static ssize_t chipid_ap_id_show(struct kobject *kobj,
+				 struct kobj_attribute *attr, char *buf)
+{
+	if (exynos_soc_info.revision == 0)
+		return snprintf(buf, 30, "%s EVT0\n", soc_ap_id);
+	else
+		return snprintf(buf, 30, "%s EVT%1X.%1X\n",
+				soc_ap_id,
+				exynos_soc_info.main_rev,
+				exynos_soc_info.sub_rev);
+}
+
+static ssize_t chipid_unique_id_show(struct kobject *kobj,
+			         struct kobj_attribute *attr, char *buf)
 {
 	return snprintf(buf, 20, "%010LX\n", exynos_soc_info.unique_id);
 }
 
-static ssize_t chipid_lot_id_show(struct device *dev,
-			         struct device_attribute *attr, char *buf)
+static ssize_t chipid_lot_id_show(struct kobject *kobj,
+			         struct kobj_attribute *attr, char *buf)
 {
 	return snprintf(buf, 14, "%08X\n", exynos_soc_info.lot_id);
 }
 
-static ssize_t chipid_revision_show(struct device *dev,
-			         struct device_attribute *attr, char *buf)
+static ssize_t chipid_revision_show(struct kobject *kobj,
+			         struct kobj_attribute *attr, char *buf)
 {
 	return snprintf(buf, 14, "%08X\n", exynos_soc_info.revision);
 }
 
-static ssize_t chipid_evt_ver_show(struct device *dev,
-			         struct device_attribute *attr, char *buf)
+static ssize_t chipid_evt_ver_show(struct kobject *kobj,
+			         struct kobj_attribute *attr, char *buf)
 {
 	if (exynos_soc_info.revision == 0)
 		return snprintf(buf, 14, "EVT0\n");
@@ -317,47 +310,31 @@ static ssize_t chipid_evt_ver_show(struct device *dev,
 				exynos_soc_info.sub_rev);
 }
 
-static ssize_t chipid_memsize_show(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, 20, "%llu\n", exynos_soc_info.memsize);
-}
-
-static ssize_t chipid_board_id_show(struct device *dev,
-			   struct device_attribute *attr, char *buf)
-{
-	return snprintf(buf, 14, "%ld", board_rev);
-}
-
-static struct device_attribute chipid_product_id_attr =
+static struct kobj_attribute chipid_product_id_attr =
         __ATTR(product_id, 0644, chipid_product_id_show, NULL);
 
-static struct device_attribute chipid_unique_id_attr =
+static struct kobj_attribute chipid_ap_id_attr =
+	__ATTR(ap_id, 0644, chipid_ap_id_show, NULL);
+
+static struct kobj_attribute chipid_unique_id_attr =
         __ATTR(unique_id, 0644, chipid_unique_id_show, NULL);
 
-static struct device_attribute chipid_lot_id_attr =
+static struct kobj_attribute chipid_lot_id_attr =
         __ATTR(lot_id, 0644, chipid_lot_id_show, NULL);
 
-static struct device_attribute chipid_revision_attr =
+static struct kobj_attribute chipid_revision_attr =
         __ATTR(revision, 0644, chipid_revision_show, NULL);
 
-static struct device_attribute chipid_evt_ver_attr =
+static struct kobj_attribute chipid_evt_ver_attr =
         __ATTR(evt_ver, 0644, chipid_evt_ver_show, NULL);
-
-static struct device_attribute chipid_memsize_attr =
-	__ATTR(memsize, 0440, chipid_memsize_show, NULL);
-
-static struct device_attribute chipid_board_id_attr =
-	__ATTR(board_id, 0644, chipid_board_id_show, NULL);
 
 static struct attribute *chipid_sysfs_attrs[] = {
 	&chipid_product_id_attr.attr,
+	&chipid_ap_id_attr.attr,
 	&chipid_unique_id_attr.attr,
 	&chipid_lot_id_attr.attr,
 	&chipid_revision_attr.attr,
 	&chipid_evt_ver_attr.attr,
-	&chipid_memsize_attr.attr,
-	&chipid_board_id_attr.attr,
 	NULL,
 };
 
@@ -370,6 +347,50 @@ static const struct attribute_group *chipid_sysfs_groups[] = {
 	NULL,
 };
 
+static ssize_t svc_ap_show(struct kobject *kobj,
+			struct kobj_attribute *attr, char *buf)
+{
+	return snprintf(buf, 20, "%010llX\n",
+			(exynos_soc_info.unique_id));
+}
+
+static struct kobj_attribute svc_ap_attr =
+		__ATTR(SVC_AP, 0644, svc_ap_show, NULL);
+
+extern struct kset *devices_kset;
+
+void sysfs_create_svc_ap(void)
+{
+	struct kernfs_node *svc_sd;
+	struct kobject *data;
+	struct kobject *ap;
+
+	/* To find svc kobject */
+	svc_sd = sysfs_get_dirent(devices_kset->kobj.sd, "svc");
+	if (IS_ERR_OR_NULL(svc_sd)) {
+		/* try to create svc kobject */
+		data = kobject_create_and_add("svc", &devices_kset->kobj);
+		if (IS_ERR_OR_NULL(data))
+			pr_info("Existing path sys/devices/svc : 0x%pK\n", data);
+		else
+			pr_info("Created sys/devices/svc svc : 0x%pK\n", data);
+	} else {
+		data = (struct kobject *)svc_sd->priv;
+		pr_info("Found svc_sd : 0x%pK svc : 0x%pK\n", svc_sd, data);
+	}
+
+	ap = kobject_create_and_add("AP", data);
+	if (IS_ERR_OR_NULL(ap))
+		pr_info("Failed to create sys/devices/svc/AP : 0x%pK\n", ap);
+	else
+		pr_info("Success to create sys/devices/svc/AP : 0x%pK\n", ap);
+
+	if (sysfs_create_file(ap, &svc_ap_attr.attr) < 0) {
+		pr_err("failed to create sys/devices/svc/AP/SVC_AP, %s\n",
+		svc_ap_attr.attr.name);
+	}
+}
+
 static int __init chipid_sysfs_init(void)
 {
 	int ret = 0;
@@ -377,6 +398,8 @@ static int __init chipid_sysfs_init(void)
 	ret = subsys_system_register(&chipid_subsys, chipid_sysfs_groups);
 	if (ret)
 		pr_err("fail to register exynos-snapshop subsys\n");
+
+	sysfs_create_svc_ap();
 
 	return ret;
 }

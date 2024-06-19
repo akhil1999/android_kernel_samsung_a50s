@@ -30,6 +30,10 @@
 #include <crypto/skcipher.h>
 #include "fscrypt_private.h"
 
+#ifdef CONFIG_FSCRYPT_SDP
+#include "sdp/sdp_crypto.h"
+#endif
+
 static unsigned int num_prealloc_crypto_pages = 32;
 static unsigned int num_prealloc_crypto_ctxs = 128;
 
@@ -104,8 +108,7 @@ struct fscrypt_ctx *fscrypt_get_ctx(const struct inode *inode, gfp_t gfp_flags)
 	if (ci == NULL)
 		return ERR_PTR(-ENOKEY);
 
-	if (__fscrypt_disk_encrypted(inode))
-		return NULL;
+	BUG_ON(__fscrypt_inline_encrypted(inode));
 
 	/*
 	 * We first try getting the ctx from a free list because in
@@ -151,6 +154,9 @@ int fscrypt_do_page_crypto(const struct inode *inode, fscrypt_direction_t rw,
 	struct fscrypt_info *ci = inode->i_crypt_info;
 	struct crypto_skcipher *tfm = ci->ci_ctfm;
 	int res = 0;
+#ifdef CONFIG_FSCRYPT_SDP
+	sdp_fs_command_t *cmd = NULL;
+#endif
 
 	BUG_ON(len == 0);
 
@@ -165,12 +171,8 @@ int fscrypt_do_page_crypto(const struct inode *inode, fscrypt_direction_t rw,
 	}
 
 	req = skcipher_request_alloc(tfm, gfp_flags);
-	if (!req) {
-		printk_ratelimited(KERN_ERR
-				"%s: crypto_request_alloc() failed\n",
-				__func__);
+	if (!req)
 		return -ENOMEM;
-	}
 
 	skcipher_request_set_callback(
 		req, CRYPTO_TFM_REQ_MAY_BACKLOG | CRYPTO_TFM_REQ_MAY_SLEEP,
@@ -187,9 +189,30 @@ int fscrypt_do_page_crypto(const struct inode *inode, fscrypt_direction_t rw,
 		res = crypto_wait_req(crypto_skcipher_encrypt(req), &wait);
 	skcipher_request_free(req);
 	if (res) {
-		printk_ratelimited(KERN_ERR
-			"%s: crypto_skcipher_encrypt() returned %d\n",
-			__func__, res);
+		fscrypt_err(inode->i_sb,
+			    "%scryption failed for inode %lu, block %llu: %d",
+			    (rw == FS_DECRYPT ? "de" : "en"),
+			    inode->i_ino, lblk_num, res);
+#ifdef CONFIG_FSCRYPT_SDP
+		if (ci->ci_sdp_info) {
+			if (ci->ci_sdp_info->sdp_flags & SDP_DEK_IS_SENSITIVE) {
+				printk("Record audit log in case of a failure during en/decryption of sensitive file\n");
+				if (rw == FS_DECRYPT) {
+					cmd = sdp_fs_command_alloc(FSOP_AUDIT_FAIL_DECRYPT,
+					current->tgid, ci->ci_sdp_info->engine_id, -1, inode->i_ino, res,
+							GFP_KERNEL);
+				} else {
+					cmd = sdp_fs_command_alloc(FSOP_AUDIT_FAIL_ENCRYPT,
+					current->tgid, ci->ci_sdp_info->engine_id, -1, inode->i_ino, res,
+							GFP_KERNEL);
+				}
+				if (cmd) {
+					sdp_fs_request(cmd, NULL);
+					sdp_fs_command_free(cmd);
+				}
+			}
+		}
+#endif
 		return res;
 	}
 	return 0;
@@ -258,9 +281,16 @@ struct page *fscrypt_encrypt_page(const struct inode *inode,
 	struct page *ciphertext_page = page;
 	int err;
 
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DEBUG
-	if (__fscrypt_disk_encrypted(inode))
+#if defined(CONFIG_CRYPTO_DISKCIPHER_DEBUG)
+	if (__fscrypt_inline_encrypted(inode))
 		crypto_diskcipher_debug(FS_ENC_WARN, 0);
+#endif
+
+#ifdef CONFIG_DDAR
+	if (fscrypt_dd_encrypted_inode(inode)) {
+		// Invert crypto order. OEM crypto must perform after 3rd party crypto
+		return NULL;
+	}
 #endif
 
 	BUG_ON(len % FS_CRYPTO_BLOCK_SIZE != 0);
@@ -324,12 +354,18 @@ EXPORT_SYMBOL(fscrypt_encrypt_page);
 int fscrypt_decrypt_page(const struct inode *inode, struct page *page,
 			unsigned int len, unsigned int offs, u64 lblk_num)
 {
-#ifdef CONFIG_CRYPTO_DISKCIPHER_DEBUG
-	if (__fscrypt_disk_encrypted(inode))
+#if defined(CONFIG_CRYPTO_DISKCIPHER_DEBUG)
+	if (__fscrypt_inline_encrypted(inode))
 		crypto_diskcipher_debug(FS_DEC_WARN, 0);
 #endif
 	if (!(inode->i_sb->s_cop->flags & FS_CFLG_OWN_PAGES))
 		BUG_ON(!PageLocked(page));
+#ifdef CONFIG_DDAR
+	if (fscrypt_dd_encrypted_inode(inode)) {
+		// Invert crypto order. OEM crypto must perform after 3rd party crypto
+		return 0;
+	}
+#endif
 
 	return fscrypt_do_page_crypto(inode, FS_DECRYPT, lblk_num, page, page,
 				      len, offs, GFP_NOFS);
@@ -355,7 +391,6 @@ static int fscrypt_d_revalidate(struct dentry *dentry, unsigned int flags)
 		return 0;
 	}
 
-	/* this should eventually be an flag in d_flags */
 	spin_lock(&dentry->d_lock);
 	cached_with_key = dentry->d_flags & DCACHE_ENCRYPTED_WITH_KEY;
 	spin_unlock(&dentry->d_lock);
@@ -379,10 +414,19 @@ static int fscrypt_d_revalidate(struct dentry *dentry, unsigned int flags)
 	return 1;
 }
 
+#ifdef CONFIG_FSCRYPT_SDP
+static int fscrypt_sdp_d_delete(const struct dentry *dentry)
+{
+	return fscrypt_sdp_d_delete_wrapper(dentry);
+}
+#endif
+
 const struct dentry_operations fscrypt_d_ops = {
 	.d_revalidate = fscrypt_d_revalidate,
+#ifdef CONFIG_FSCRYPT_SDP
+	.d_delete     = fscrypt_sdp_d_delete,
+#endif
 };
-EXPORT_SYMBOL(fscrypt_d_ops);
 
 void fscrypt_restore_control_page(struct page *page)
 {
@@ -451,6 +495,27 @@ fail:
 	return res;
 }
 
+void fscrypt_msg(struct super_block *sb, const char *level,
+		 const char *fmt, ...)
+{
+	static DEFINE_RATELIMIT_STATE(rs, DEFAULT_RATELIMIT_INTERVAL,
+				      DEFAULT_RATELIMIT_BURST);
+	struct va_format vaf;
+	va_list args;
+
+	if (!__ratelimit(&rs))
+		return;
+
+	va_start(args, fmt);
+	vaf.fmt = fmt;
+	vaf.va = &args;
+	if (sb)
+		printk("%sfscrypt (%s): %pV\n", level, sb->s_id, &vaf);
+	else
+		printk("%sfscrypt: %pV\n", level, &vaf);
+	va_end(args);
+}
+
 /**
  * fscrypt_init() - Set up for fs encryption.
  */
@@ -478,7 +543,15 @@ static int __init fscrypt_init(void)
 	if (!fscrypt_info_cachep)
 		goto fail_free_ctx;
 
+#ifdef CONFIG_FSCRYPT_SDP
+	sdp_crypto_init();
+	if (!fscrypt_sdp_init_sdp_info_cachep())
+		goto fail_free_info;
+#endif
+
 	return 0;
+fail_free_info:
+	kmem_cache_destroy(fscrypt_info_cachep);
 
 fail_free_ctx:
 	kmem_cache_destroy(fscrypt_ctx_cachep);
@@ -500,6 +573,10 @@ static void __exit fscrypt_exit(void)
 		destroy_workqueue(fscrypt_read_workqueue);
 	kmem_cache_destroy(fscrypt_ctx_cachep);
 	kmem_cache_destroy(fscrypt_info_cachep);
+#ifdef CONFIG_FSCRYPT_SDP
+	sdp_crypto_exit();
+	fscrypt_sdp_release_sdp_info_cachep();
+#endif
 
 	fscrypt_essiv_cleanup();
 }

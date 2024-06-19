@@ -24,9 +24,9 @@
 #include <linux/extcon.h>
 #endif
 #if defined(CONFIG_USB_TYPEC_MANAGER_NOTIFIER)
-#include <linux/usb/manager/usb_typec_manager_notifier.h>
+#include <linux/usb/typec/usb_typec_manager_notifier.h>
 #include <linux/notifier.h>
-#include <linux/ccic/ccic_notifier.h>
+#include <linux/usb/typec/pdic_notifier.h>
 #endif
 
 #include "./cal_9610/regs-displayport.h"

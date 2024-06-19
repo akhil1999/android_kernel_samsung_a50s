@@ -162,6 +162,7 @@ struct dw_mci {
 	spinlock_t lock;
 	spinlock_t irq_lock;
 	void __iomem *regs;
+	void __iomem *fmp_regs;
 	void __iomem *fifo_reg;
 	u32 data_addr_override;
 	bool wm_aligned;
@@ -176,7 +177,6 @@ struct dw_mci {
 	unsigned int prev_blksz;
 	unsigned char timing;
 	struct workqueue_struct *card_workqueue;
-	struct workqueue_struct *sd_card_det_workqueue;
 
 	/* DMA interface members */
 	int use_dma;
@@ -195,7 +195,8 @@ struct dw_mci {
 	resource_size_t phy_regs;
 
 	unsigned int desc_sz;
-	struct pm_qos_request pm_qos_lock;
+	struct pm_qos_request pm_qos_int_lock;
+	struct pm_qos_request pm_qos_mif_lock;
 	struct delayed_work qos_work;
 	bool qos_cntrl;
 	u32 cmd_status;
@@ -205,7 +206,7 @@ struct dw_mci {
 	struct tasklet_struct tasklet;
 	u32 tasklet_state;
 	struct work_struct card_work;
-	struct work_struct card_det_work;
+	u32 card_detect_cnt;
 	unsigned long pending_events;
 	unsigned long completed_events;
 	enum dw_mci_state state;
@@ -240,8 +241,8 @@ struct dw_mci {
 		u32 part_buf32;
 		u64 part_buf;
 	};
-	void (*push_data)(struct dw_mci *host, void *buf, int cnt);
-	void (*pull_data)(struct dw_mci *host, void *buf, int cnt);
+	void (*push_data) (struct dw_mci * host, void *buf, int cnt);
+	void (*pull_data) (struct dw_mci * host, void *buf, int cnt);
 
 	/* Workaround flags */
 	u32 quirks;
@@ -260,6 +261,9 @@ struct dw_mci {
 
 	/* HWACG q-active ctrl check */
 	unsigned int qactive_check;
+
+	/* SSC ctrl check */
+	bool ssc_check;
 
 	/* Support system power mode */
 	int idle_ip_index;
@@ -281,18 +285,21 @@ struct dw_mci {
 	struct timer_list cmd11_timer;
 	struct timer_list cto_timer;
 	struct timer_list dto_timer;
+
+	/* channel id */
+	u32 ch_id;
 };
 
 /* DMA ops for Internal/External DMAC interface */
 struct dw_mci_dma_ops {
 	/* DMA Ops */
-	int (*init)(struct dw_mci *host);
-	int (*start)(struct dw_mci *host, unsigned int sg_len);
-	void (*complete)(void *host);
-	void (*stop)(struct dw_mci *host);
-	void (*reset)(struct dw_mci *host);
-	void (*cleanup)(struct dw_mci *host);
-	void (*exit)(struct dw_mci *host);
+	int (*init) (struct dw_mci * host);
+	int (*start) (struct dw_mci * host, unsigned int sg_len);
+	void (*complete) (void *host);
+	void (*stop) (struct dw_mci * host);
+	void (*reset) (struct dw_mci * host);
+	void (*cleanup) (struct dw_mci * host);
+	void (*exit) (struct dw_mci * host);
 };
 
 /* IP Quirks/flags. */
@@ -355,12 +362,13 @@ struct dw_mci_board {
 	bool only_once_tune;
 
 	/* INT QOS khz */
-	unsigned int qos_dvfs_level;
-	unsigned char io_mode;
-
+	unsigned int qos_dvfs_int_level;
+	/* MIF QOS khz */
+	unsigned int qos_dvfs_mif_level;
 	/* SSC RATE */
 	unsigned int ssc_rate;
 
+	unsigned char io_mode;
 	enum dw_mci_cd_types cd_type;
 	struct reset_control *rstc;
 	struct dw_mci_dma_ops *dma_ops;
@@ -393,6 +401,8 @@ struct dw_mci_board {
 #if defined(CONFIG_MMC_DW_EXYNOS_FMP)
 struct idmac_desc_64addr {
 	u32 des0;		/* Control Descriptor */
+#define IDMAC_OWN_CLR64(x) \
+	!((x) & cpu_to_le32(IDMAC_DES0_OWN))
 #define IDMAC_DES0_DIC	BIT(1)
 #define IDMAC_DES0_LD	BIT(2)
 #define IDMAC_DES0_FD	BIT(3)
@@ -401,10 +411,10 @@ struct idmac_desc_64addr {
 #define IDMAC_DES0_CES	BIT(30)
 #define IDMAC_DES0_OWN	BIT(31)
 	u32 des1;		/* Reserved */
+	u32 des2;		/*Buffer sizes */
 #define IDMAC_64ADDR_SET_BUFFER1_SIZE(d, s) \
 	((d)->des2 = ((d)->des2 & cpu_to_le32(0x03ffe000)) | \
 	 ((cpu_to_le32(s)) & cpu_to_le32(0x1fff)))
-	u32 des2;		/*Buffer sizes */
 	u32 des3;		/* Reserved */
 	u32 des4;		/* Lower 32-bits of Buffer Address Pointer 1 */
 	u32 des5;		/* Upper 32-bits of Buffer Address Pointer 1 */
@@ -473,12 +483,12 @@ do {			\
 	(d)->des1 = 0;	\
 	(d)->des2 = 0;	\
 	(d)->des3 = 0;	\
-} while (0)
+} while(0)
 #define IDMAC_64ADDR_SET_DESC_ADDR(d, a) \
 do {			\
 	(d)->des6 = ((u32)(a) & 0xffffffff); \
 	(d)->des7 = ((u32)((a) >> 32));	\
-} while (0)
+} while(0)
 };
 #else
 struct idmac_desc_64addr {
@@ -504,12 +514,12 @@ do {			\
 	(d)->des1 = 0;	\
 	(d)->des2 = 0;	\
 	(d)->des3 = 0;	\
-} while (0)
+} while(0)
 #define IDMAC_64ADDR_SET_DESC_ADDR(d, a) \
 do {			\
 	(d)->des6 = ((u32)(a) & 0xffffffff); \
 	(d)->des7 = ((u32)((a) >> 32));	\
-} while (0)
+} while(0)
 };
 #endif
 
@@ -533,7 +543,7 @@ struct idmac_desc {
 #define IDMAC_SET_DESC_ADDR(d, a) \
 do {	\
 	(d)->des3 = (u32)(a);	\
-} while (0)
+} while(0)
 };
 #endif				/* CONFIG_MMC_DW_IDMAC */
 
@@ -720,13 +730,13 @@ do {	\
 #ifdef CONFIG_MMC_DW_FORCE_32BIT_SFR_RW
 #define mci_fifo_readq(__reg) ({\
 		u64 __ret = 0;\
-		u32 *ptr = (u32 *)&__ret;\
+		u32* ptr = (u32*)&__ret;\
 		*ptr++ = __raw_readl(__reg);\
 		*ptr = __raw_readl(__reg + 0x4);\
 		__ret;\
 		})
 #define mci_fifo_writeq(__reg, value) ({\
-		u32 *ptr = (u32 *)&(value);\
+		u32 *ptr = (u32*)&(value);\
 		__raw_writel(*ptr++, __reg);\
 		__raw_writel(*ptr, __reg + 0x4);\
 		})
@@ -741,6 +751,8 @@ do {	\
 /* Register access macros */
 #define mci_readl(dev, reg)			\
 	readl_relaxed((dev)->regs + SDMMC_##reg)
+#define mci_fmp_readl(dev, reg)			\
+	readl_relaxed((dev)->fmp_regs + SDMMC_##reg)
 #define mci_writel(dev, reg, value)			\
 	writel_relaxed((value), (dev)->regs + SDMMC_##reg)
 
@@ -758,13 +770,13 @@ do {	\
 #ifdef CONFIG_MMC_DW_FORCE_32BIT_SFR_RW
 #define mci_readq(dev, reg) ({\
 		u64 __ret = 0;\
-		u32 *ptr = (u32 *)&__ret;\
+		u32* ptr = (u32*)&__ret;\
 		*ptr++ = __raw_readl((dev)->regs + SDMMC_##reg);\
 		*ptr = __raw_readl((dev)->regs + SDMMC_##reg + 0x4);\
 		__ret;\
 	})
 #define mci_writeq(dev, reg, value) ({\
-		u32 *ptr = (u32 *)&(value);\
+		u32 *ptr = (u32*)&(value);\
 		__raw_writel(*ptr++, (dev)->regs + SDMMC_##reg);\
 		__raw_writel(*ptr, (dev)->regs + SDMMC_##reg + 0x4);\
 	})
@@ -808,6 +820,7 @@ enum dw_mci_misc_control {
 	CTRL_RESTORE_CLKSEL = 0,
 	CTRL_REQUEST_EXT_IRQ,
 	CTRL_CHECK_CD,
+	CTRL_ADD_SYSFS,
 };
 
 #define SDMMC_DATA_TMOUT_SHIFT		11
@@ -970,26 +983,25 @@ struct dw_mci_tuning_data {
 struct dw_mci_drv_data {
 	unsigned long	*caps;
 	u32		num_caps;
-	int (*init)(struct dw_mci *host);
-	void (*set_ios)(struct dw_mci *host, struct mmc_ios *ios);
-	int (*parse_dt)(struct dw_mci *host);
-	int (*execute_tuning)(struct dw_mci_slot *slot, u32 opcode,
-			       struct dw_mci_tuning_data *tuning_data);
-	int (*prepare_hs400_tuning)(struct dw_mci *host, struct mmc_ios *ios);
-	int (*switch_voltage)(struct mmc_host *mmc, struct mmc_ios *ios);
-	void (*hwacg_control)(struct dw_mci *host, u32 flag);
-	int (*misc_control)(struct dw_mci *host, enum dw_mci_misc_control control, void *priv);
-	int (*crypto_engine_cfg)(struct dw_mci *host,
+	int (*init) (struct dw_mci * host);
+	void (*set_ios) (struct dw_mci * host, struct mmc_ios * ios);
+	int (*parse_dt) (struct dw_mci * host);
+	int (*execute_tuning) (struct dw_mci_slot * slot, u32 opcode,
+			       struct dw_mci_tuning_data * tuning_data);
+	int (*prepare_hs400_tuning) (struct dw_mci * host, struct mmc_ios * ios);
+	int (*switch_voltage) (struct mmc_host * mmc, struct mmc_ios * ios);
+	void (*hwacg_control) (struct dw_mci * host, u32 flag);
+	int (*misc_control) (struct dw_mci * host, enum dw_mci_misc_control control, void *priv);
+	int (*crypto_engine_cfg) (struct dw_mci * host,
 				  void *desc,
-				  struct mmc_data *data,
-				  struct page *page, int sector_offset, bool cmdq_enabled);
-	int (*crypto_engine_clear)(struct dw_mci *host, void *desc, bool cmdq_enabled);
-	int (*access_control_get_dev)(struct dw_mci *host);
-	int (*access_control_sec_cfg)(struct dw_mci *host);
-	int (*access_control_init)(struct dw_mci *host);
-	int (*access_control_abort)(struct dw_mci *host);
-	int (*access_control_resume)(struct dw_mci *host);
-	void (*ssclk_control)(struct dw_mci *host, int enable);
+				  struct mmc_data * data,
+				  struct page * page, int sector_offset, bool cmdq_enabled);
+	int (*crypto_engine_clear) (struct dw_mci * host, void *desc, bool cmdq_enabled);
+	int (*crypto_engine_sec_cfg)(struct dw_mci *host);
+	int (*access_control_init) (struct dw_mci * host);
+	int (*access_control_abort) (struct dw_mci * host);
+	int (*access_control_resume) (struct dw_mci * host);
+	void (*ssclk_control) (struct dw_mci * host, int enable);
 };
 
 struct dw_mci_sfr_ram_dump {

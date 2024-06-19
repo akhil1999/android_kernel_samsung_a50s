@@ -278,6 +278,7 @@ struct fimc_is_core {
 	atomic_t				rsccount;
 	unsigned long				state;
 	bool					shutdown;
+	struct mutex				mutex_reboot;
 	bool					reboot;
 	struct fimc_is_sysfs_debug sysfs_debug;
 	struct work_struct			wq_data_print_clk;

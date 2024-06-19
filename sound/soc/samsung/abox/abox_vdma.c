@@ -33,6 +33,7 @@ struct abox_vdma_rtd {
 	unsigned long iova;
 	size_t pointer;
 	bool ack_enabled;
+	bool iommu_mapped;
 };
 
 struct abox_vdma_info {
@@ -370,9 +371,12 @@ static int abox_vdma_platform_new(struct snd_soc_pcm_runtime *soc_rtd)
 		if (abox_iova_to_phys(dev_abox, info->rtd[i].iova) == 0) {
 			ret = abox_iommu_map(dev_abox, info->rtd[i].iova,
 					substream->dma_buffer.addr,
-					substream->dma_buffer.bytes);
+					substream->dma_buffer.bytes,
+					substream->dma_buffer.area);
 			if (ret < 0)
 				return ret;
+
+			info->rtd[i].iommu_mapped = true;
 		}
 
 		info->rtd[i].substream = substream;
@@ -400,10 +404,14 @@ static void abox_vdma_platform_free(struct snd_pcm *pcm)
 
 		info->rtd[i].substream = NULL;
 
-		if (!info->rtd[i].buffer.addr) {
-			abox_iommu_unmap(dev_abox, info->rtd[i].iova,
-					substream->dma_buffer.addr,
-					substream->dma_buffer.bytes);
+		if (info->rtd[i].iommu_mapped) {
+			abox_iommu_unmap(dev_abox, info->rtd[i].iova);
+			info->rtd[i].iommu_mapped = false;
+		}
+
+		if (info->rtd[i].buffer.addr) {
+			substream->dma_buffer.area = NULL;
+		} else {
 			snd_pcm_lib_preallocate_free(substream);
 		}
 	}
@@ -440,12 +448,18 @@ static irqreturn_t abox_vdma_irq_handler(int ipc_id, void *dev_id,
 		struct PCMTASK_HARDWARE *hardware;
 		struct device *dev_abox = dev_id;
 		struct abox_data *data = dev_get_drvdata(dev_abox);
+		void *area;
+		phys_addr_t addr;
 
 		hardware = &pcmtask_msg->param.hardware;
-		abox_vdma_register(dev_abox, id, stream,
-				abox_addr_to_kernel_addr(data, hardware->addr),
-				abox_addr_to_phys_addr(data, hardware->addr),
-				hardware);
+		if (hardware->addr) {
+			area = abox_addr_to_kernel_addr(data, hardware->addr);
+			addr = abox_addr_to_phys_addr(data, hardware->addr);
+		} else {
+			area = 0;
+			addr = 0;
+		}
+		abox_vdma_register(dev_abox, id, stream, area, addr, hardware);
 		break;
 	}
 	default:
@@ -503,9 +517,8 @@ int abox_vdma_register(struct device *dev, int id, int stream,
 	if (info->dev && rtd->iova)
 		return -EEXIST;
 
-	dev_info(dev, "%s(%d, %s, %d, %p, %pa, %u)\n", __func__,
-			id, pcm_hardware->name, stream, area, &addr,
-			pcm_hardware->buffer_bytes_max);
+	dev_info(dev, "%s(%d, %s, %d, %u)\n", __func__, id, pcm_hardware->name,
+			stream, pcm_hardware->buffer_bytes_max);
 
 	info->id = id;
 	strncpy(info->name, pcm_hardware->name, sizeof(info->name) - 1);

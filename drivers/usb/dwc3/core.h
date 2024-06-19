@@ -38,6 +38,8 @@
 
 #include <linux/phy/phy.h>
 
+#include "../../battery_v2/include/sec_charging_common.h"
+
 #define DWC3_MSG_MAX	500
 
 /* Global constants */
@@ -160,7 +162,18 @@
 #define DWC3_OEVTEN		0xcc0C
 #define DWC3_OSTS		0xcc10
 
+/* LINK Registers */
+#define DWC3_LSKIPFREQ		0xd020
+#define DWC3_LLUCTL		0xd024
+
 /* Bit fields */
+/* Link Register - LLUCTL, LSKIPFREQ*/
+#define DWC3_PENDING_HP_TIMER_US(n)	((n) << 16)
+#define DWC3_EN_US_HP_TIMER		BIT(15)
+
+#define DWC3_PM_ENTRY_TIMER_US(n)	((n) << 20)
+#define DWC3_PM_LC_TIMER_US(n)		((n) << 24)
+#define DWC3_EN_PM_TIMER_US		BIT(27)
 
 /* Global Debug Queue/FIFO Space Available Register */
 #define DWC3_GSBUSCFG0_INCRBRSTEN	(1 << 0)
@@ -280,6 +293,7 @@
 #define DWC3_GUSB3PIPECTL_RX_DETOPOLL	BIT(8)
 #define DWC3_GUSB3PIPECTL_TX_DEEPH_MASK	DWC3_GUSB3PIPECTL_TX_DEEPH(3)
 #define DWC3_GUSB3PIPECTL_TX_DEEPH(n)	((n) << 1)
+#define DWC3_ELASTIC_BUFFER_MODE	BIT(0)
 
 /* Global TX Fifo Size Register */
 #define DWC31_GTXFIFOSIZ_TXFRAMNUM	BIT(15)		/* DWC_usb31 only */
@@ -691,6 +705,11 @@ enum dwc3_link_state {
 	DWC3_LINK_STATE_MASK		= 0x0f,
 };
 
+enum {
+	RELEASE	= 0,
+	NOTIFY	= 1,
+};
+
 /* TRB Length, PCM and Status */
 #define DWC3_TRB_SIZE_MASK	(0x00ffffff)
 #define DWC3_TRB_SIZE_LENGTH(n)	((n) & DWC3_TRB_SIZE_MASK)
@@ -823,9 +842,6 @@ struct dwc3_scratchpad_array {
 	__le64	dma_adr[DWC3_MAX_HIBER_SCRATCHBUFS];
 };
 
-#define	CHG_CONNECTED_DELAY_TIME	(3000*HZ/1000) /* 3s */
-#define MAX_RETRY_CNT			5
-
 /**
  * struct dwc3 - representation of our controller
  * @drd_work: workqueue used for role swapping
@@ -916,6 +932,8 @@ struct dwc3_scratchpad_array {
  * @req_p1p2p3_quirk: set if we enable request p1p2p3 quirk
  * @del_p1p2p3_quirk: set if we enable delay p1p2p3 quirk
  * @u1u2_exitfail_to_recov_quirk: set if we enable u1u2 exitfail to recov quirk
+ * @ux_exit_in_px_quirk: set in MK, LT
+ * @elastic_buf_mode_quirk: set in MK
  * @del_phy_power_chg_quirk: set if we enable delay phy power change quirk
  * @lfps_filter_quirk: set if we enable LFPS filter quirk
  * @rx_detect_poll_quirk: set if we enable rx_detect to polling lfps quirk
@@ -952,10 +970,6 @@ struct dwc3 {
 	dma_addr_t		scratch_addr;
 	struct dwc3_request	ep0_usb_req;
 	struct completion	ep0_in_setup;
-
-	/* check device state */
-	struct timer_list	usb_connect_timer;
-	int			retry_cnt;
 
 	/* device lock */
 	spinlock_t		lock;
@@ -1099,6 +1113,8 @@ struct dwc3 {
 	unsigned		req_p1p2p3_quirk:1;
 	unsigned        del_p1p2p3_quirk:1;
 	unsigned 		u1u2_exitfail_to_recov_quirk:1;
+	unsigned		ux_exit_in_px_quirk:1;
+	unsigned		elastic_buf_mode_quirk:1;
 	unsigned		del_phy_power_chg_quirk:1;
 	unsigned		lfps_filter_quirk:1;
 	unsigned		rx_detect_poll_quirk:1;
@@ -1120,8 +1136,17 @@ struct dwc3 {
 	unsigned		sparse_transfer_control:1;
 	unsigned		is_not_vbus_pad:1;
 	unsigned		start_config_issued:1;
-};
 
+	struct work_struct      set_vbus_current_work;
+	int			vbus_current; /* 100mA,  500mA,  900mA */
+	struct delayed_work usb_event_work;
+	ktime_t rst_time_before;
+	ktime_t rst_time_first;
+	int rst_err_cnt;
+	bool rst_err_noti;
+	bool event_state;
+};
+#define ERR_RESET_CNT	3
 #define work_to_dwc(w)		(container_of((w), struct dwc3, drd_work))
 
 /* -------------------------------------------------------------------------- */

@@ -2277,7 +2277,11 @@ int hcd_bus_suspend(struct usb_device *rhdev, pm_message_t msg)
 
 			status = hcd->driver->hub_status_data(hcd, buffer);
 			if (status != 0) {
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+				dev_err(&rhdev->dev, "suspend raced with wakeup event\n");
+#else
 				dev_dbg(&rhdev->dev, "suspend raced with wakeup event\n");
+#endif
 				hcd_bus_resume(rhdev, PMSG_AUTO_RESUME);
 				status = -EBUSY;
 			}
@@ -2293,13 +2297,12 @@ int hcd_bus_suspend(struct usb_device *rhdev, pm_message_t msg)
 				"suspend", status);
 	}
 
-#ifndef CONFIG_USB_OTG_SW_SWITCH
 	/* L2 suspend only support USB2.0port */
-	if (hcd->state == HC_STATE_SUSPENDED) {
+	if (hcd->driver->wake_lock && hcd->state == HC_STATE_SUSPENDED) {
 		dev_info(&rhdev->dev, "HCD STATE IS SUSPENDED, NEED WAKE UNLOCK\n");
 		hcd->driver->wake_lock(hcd, 0);
 	}
-#endif
+
 	return status;
 }
 
@@ -2312,7 +2315,11 @@ int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg)
 	dev_info(&rhdev->dev, "usb %sresume\n",
 			(PMSG_IS_AUTO(msg) ? "auto-" : ""));
 	if (HCD_DEAD(hcd)) {
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		dev_err(&rhdev->dev, "skipped %s of dead bus\n", "resume");
+#else
 		dev_dbg(&rhdev->dev, "skipped %s of dead bus\n", "resume");
+#endif
 		return 0;
 	}
 	if (!hcd->driver->bus_resume)
@@ -2327,12 +2334,11 @@ int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg)
 		struct usb_device *udev;
 		int port1;
 
-#ifndef CONFIG_USB_OTG_SW_SWITCH
-		if (hcd->state == HC_STATE_RESUMING) {
+		if (hcd->driver->wake_lock && hcd->state == HC_STATE_RESUMING) {
 			dev_info(&rhdev->dev, "HCD STATE IS RESUMING, NEED WAKE LOCK\n");
 			hcd->driver->wake_lock(hcd, 1);
 		}
-#endif
+
 		spin_lock_irq(&hcd_root_hub_lock);
 		if (!HCD_DEAD(hcd)) {
 			usb_set_device_state(rhdev, rhdev->actconfig
@@ -2358,8 +2364,13 @@ int hcd_bus_resume(struct usb_device *rhdev, pm_message_t msg)
 		}
 	} else {
 		hcd->state = old_state;
+#ifdef CONFIG_USB_DEBUG_DETAILED_LOG
+		dev_err(&rhdev->dev, "bus %s fail, err %d\n",
+				"resume", status);
+#else
 		dev_dbg(&rhdev->dev, "bus %s fail, err %d\n",
 				"resume", status);
+#endif
 		if (status != -ESHUTDOWN)
 			usb_hc_died(hcd);
 	}

@@ -26,8 +26,7 @@ struct page_owner {
 	depot_stack_handle_t handle;
 };
 
-static bool page_owner_disabled =
-	!IS_ENABLED(CONFIG_PAGE_OWNER_ENABLE_DEFAULT);
+static bool page_owner_disabled = true;
 DEFINE_STATIC_KEY_FALSE(page_owner_inited);
 
 static depot_stack_handle_t dummy_handle;
@@ -43,9 +42,6 @@ static int early_page_owner_param(char *buf)
 
 	if (strcmp(buf, "on") == 0)
 		page_owner_disabled = false;
-
-	if (strcmp(buf, "off") == 0)
-		page_owner_disabled = true;
 
 	return 0;
 }

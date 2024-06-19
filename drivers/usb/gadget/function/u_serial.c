@@ -716,7 +716,7 @@ static int gs_start_io(struct gs_port *port)
 	started = gs_start_rx(port);
 
 	/* unblock any pending writes into our circular buffer */
-	if (started) {
+	if (started && port->port.tty) {
 		tty_wakeup(port->port.tty);
 	} else {
 		gs_free_requests(ep, head, &port->read_allocated);
@@ -1363,7 +1363,8 @@ int gserial_alloc_line(unsigned char *line_num)
 {
 	struct usb_cdc_line_coding	coding;
 	struct device			*tty_dev;
-	int				ret;
+	/* prevent issue fix */
+	int				ret = -EBUSY;
 	int				port_num;
 
 	coding.dwDTERate = cpu_to_le32(9600);

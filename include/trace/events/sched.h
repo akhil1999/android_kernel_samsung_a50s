@@ -676,7 +676,7 @@ TRACE_EVENT(sched_fluid_activated_cpus,
 		__field(	int,		cpu		)
 		__field(	int,		util_sum	)
 		__field(	int,		busy_thr	)
-		__field(	unsigned long,	prefer_mask	)
+		__field(	unsigned int,	prefer_mask	)
 	),
 
 	TP_fast_assign(

@@ -19,11 +19,9 @@
 #include <linux/bitops.h>
 #include <soc/samsung/exynos-pmu.h>
 #include <soc/samsung/exynos-itmon.h>
-#include <soc/samsung/exynos-debug.h>
-#if defined(CONFIG_SEC_MODEM_IF)
-#include <soc/samsung/exynos-modem-ctrl.h>
+#ifdef CONFIG_SEC_DEBUG
+#include <linux/sec_debug.h>
 #endif
-
 
 #define OFFSET_TMOUT_REG		(0x2000)
 #define OFFSET_REQ_R			(0x0)
@@ -503,6 +501,11 @@ MODULE_DEVICE_TABLE(of, itmon_dt_match);
 
 #define EXYNOS_PMU_BURNIN_CTRL		0x0A08
 #define BIT_ENABLE_DBGSEL_WDTRESET	BIT(25)
+#ifdef CONFIG_S3C2410_WATCHDOG
+extern int s3c2410wdt_set_emergency_reset(unsigned int timeout, int index);
+#else
+#define s3c2410wdt_set_emergency_reset(a, b)	do { } while (0)
+#endif
 static void itmon_switch_scandump(void)
 {
 	unsigned int val;
@@ -690,10 +693,7 @@ static void itmon_post_handler_by_master(struct itmon_dev *itmon,
 		} else {
 			/* Disable busmon all interrupts */
 			itmon_init(itmon, false);
-#if defined(CONFIG_SEC_MODEM_IF)
-			pdata->crash_in_progress = true;
-			modem_force_crash_exit_ext();
-#endif
+			/* TODO: CP Crash operation */
 		}
 	}
 }
@@ -766,11 +766,15 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 	struct itmon_platdata *pdata = itmon->pdata;
 	struct itmon_traceinfo *traceinfo = &pdata->traceinfo[trans_type];
 	struct itmon_nodegroup *group = NULL;
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	char temp_buf[SZ_128];
+#endif
 
 	if (!traceinfo->dirty)
 		return;
 
-	pr_info("--------------------------------------------------------------------------\n"
+	pr_auto(ASL3,
+		"--------------------------------------------------------------------------\n"
 		"      Transaction Information\n\n"
 		"      > Master         : %s %s\n"
 		"      > Target         : %s\n"
@@ -784,11 +788,23 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 		"(BAAW Remapped address)" : "",
 		trans_type == TRANS_TYPE_READ ? "READ" : "WRITE",
 		itmon_errcode[traceinfo->errcode]);
+#ifdef CONFIG_SEC_DEBUG_EXTRA_INFO
+	snprintf(temp_buf, SZ_128, "%s %s/ %s/ 0x%zx %s/ %s/ %s",
+		traceinfo->port, traceinfo->master ? traceinfo->master : "",
+		traceinfo->dest ? traceinfo->dest : "Unknown",
+		traceinfo->target_addr,
+		traceinfo->target_addr == INVALID_REMAPPING ?
+		"(by CP maybe)" : "",
+		trans_type == TRANS_TYPE_READ ? "READ" : "WRITE",
+		itmon_errcode[traceinfo->errcode]);
+	sec_debug_set_extra_info_busmon(temp_buf);
+#endif
 
 	if (node) {
 		struct itmon_tracedata *tracedata = &node->tracedata;
 
-		pr_info("      > Size           : %u bytes x %u burst => %u bytes\n"
+		pr_auto(ASL3,
+			"      > Size           : %u bytes x %u burst => %u bytes\n"
 			"      > Burst Type     : %u (0:FIXED, 1:INCR, 2:WRAP)\n"
 			"      > Level          : %s\n"
 			"      > Protection     : %s\n",
@@ -799,12 +815,13 @@ static void itmon_report_traceinfo(struct itmon_dev *itmon,
 			(BIT_AXPROT(tracedata->ext_info_2) & 0x2) ? "Non-secure access" : "Secure access");
 
 		group = node->group;
-		pr_info("      > Path Type      : %s\n"
+		pr_auto(ASL3,
+			"      > Path Type      : %s\n"
 			"--------------------------------------------------------------------------\n",
 			itmon_pathtype[group->bus_type]);
 
 	} else {
-		pr_info("--------------------------------------------------------------------------\n");
+		pr_auto(ASL3, "--------------------------------------------------------------------------\n");
 	}
 }
 
@@ -817,7 +834,8 @@ static void itmon_report_pathinfo(struct itmon_dev *itmon,
 	struct itmon_traceinfo *traceinfo = &pdata->traceinfo[trans_type];
 
 	if (!traceinfo->path_dirty) {
-		pr_info("--------------------------------------------------------------------------\n"
+		pr_auto(ASL3,
+			"--------------------------------------------------------------------------\n"
 			"      ITMON Report (%s)\n"
 			"--------------------------------------------------------------------------\n"
 			"      PATH Information\n",
@@ -826,19 +844,19 @@ static void itmon_report_pathinfo(struct itmon_dev *itmon,
 	}
 	switch (node->type) {
 	case M_NODE:
-		pr_info("      > %14s, %8s(0x%08X)\n",
+		pr_auto(ASL3, " > %14s, %8s(0x%08X)\n",
 			node->name, "M_NODE", node->phy_regs + tracedata->offset);
 		break;
 	case T_S_NODE:
-		pr_info("      > %14s, %8s(0x%08X)\n",
+		pr_auto(ASL3, " > %14s, %8s(0x%08X)\n",
 			node->name, "T_S_NODE", node->phy_regs + tracedata->offset);
 		break;
 	case T_M_NODE:
-		pr_info("      > %14s, %8s(0x%08X)\n",
+		pr_auto(ASL3, " > %14s, %8s(0x%08X)\n",
 			node->name, "T_M_NODE", node->phy_regs + tracedata->offset);
 		break;
 	case S_NODE:
-		pr_info("      > %14s, %8s(0x%08X)\n",
+		pr_auto(ASL3, " > %14s, %8s(0x%08X)\n",
 			node->name, "S_NODE", node->phy_regs + tracedata->offset);
 		break;
 	}
@@ -1011,7 +1029,7 @@ static void itmon_route_tracedata(struct itmon_dev *itmon)
 
 	if (pdata->traceinfo[TRANS_TYPE_READ].dirty ||
 		pdata->traceinfo[TRANS_TYPE_WRITE].dirty)
-			pr_info("      Raw Register Information(ITMON Internal Information)\n\n");
+		pr_auto(ASL3, " Raw Register Information(ITMON Internal Information)\n\n");
 
 	for (trans_type = 0; trans_type < TRANS_TYPE_NUM; trans_type++) {
 		for (i = M_NODE; i < NODE_TYPE; i++) {
@@ -1028,7 +1046,7 @@ static void itmon_route_tracedata(struct itmon_dev *itmon)
 
 	if (pdata->traceinfo[TRANS_TYPE_READ].dirty ||
 		pdata->traceinfo[TRANS_TYPE_WRITE].dirty)
-		pr_info("--------------------------------------------------------------------------\n");
+		pr_auto(ASL3, "--------------------------------------------------------------------------\n");
 
 	for (trans_type = 0; trans_type < TRANS_TYPE_NUM; trans_type++) {
 		itmon_post_handler_to_notifier(itmon, trans_type);
@@ -1073,7 +1091,7 @@ static void itmon_trace_data(struct itmon_dev *itmon,
 		/* Only NOT S-Node is able to make log to registers */
 		break;
 	default:
-		pr_info("Unknown Error - node:%s offset:%u\n", node->name, offset);
+		pr_auto(ASL3, "Unknown Error - node:%s offset:%u\n", node->name, offset);
 		break;
 	}
 
@@ -1099,7 +1117,7 @@ static void itmon_trace_data(struct itmon_dev *itmon,
 
 		list_add(&new_node->list, &pdata->tracelist[read]);
 	} else {
-		pr_info("failed to kmalloc for %s node %x offset\n",
+		pr_auto(ASL3, "failed to kmalloc for %s node %x offset\n",
 			node->name, offset);
 	}
 }
@@ -1245,8 +1263,8 @@ static struct bus_type itmon_subsys = {
 	.dev_name = "itmon",
 };
 
-static ssize_t itmon_timeout_fix_val_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t itmon_timeout_fix_val_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	ssize_t n = 0;
 	struct itmon_platdata *pdata = g_itmon->pdata;
@@ -1256,20 +1274,20 @@ static ssize_t itmon_timeout_fix_val_show(struct device *dev,
 	return n;
 }
 
-static ssize_t itmon_timeout_fix_val_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t itmon_timeout_fix_val_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	unsigned long val = simple_strtoul(buf, NULL, 0);
 	struct itmon_platdata *pdata = g_itmon->pdata;
 
-	if (val > 0 && val <= 0xFFFFF)
-		pdata->sysfs_tmout_val = val;
+	if (val > 0UL && val <= 0xFFFFFUL)
+		pdata->sysfs_tmout_val = (unsigned int)val;
 
 	return count;
 }
 
-static ssize_t itmon_scandump_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t itmon_scandump_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	ssize_t n = 0;
 	struct itmon_platdata *pdata = g_itmon->pdata;
@@ -1281,22 +1299,22 @@ static ssize_t itmon_scandump_show(struct device *dev,
 	return n;
 }
 
-static ssize_t itmon_scandump_store(struct device *dev,
-		struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t itmon_scandump_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	unsigned long val = simple_strtoul(buf, NULL, 0);
 	struct itmon_platdata *pdata = g_itmon->pdata;
 
-	if (val > 0 && val <= 0xFFFFF) {
+	if (val > 0UL && val <= 0xFFFFFUL) {
 		pdata = g_itmon->pdata;
-		pdata->sysfs_scandump = val;
+		pdata->sysfs_scandump = (unsigned int)val;
 	}
 
 	return count;
 }
 
-static ssize_t itmon_timeout_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t itmon_timeout_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	unsigned long i, offset;
 	ssize_t n = 0;
@@ -1322,8 +1340,8 @@ static ssize_t itmon_timeout_show(struct device *dev,
 	return n;
 }
 
-static ssize_t itmon_timeout_val_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t itmon_timeout_val_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	unsigned long i, offset;
 	ssize_t n = 0;
@@ -1349,8 +1367,8 @@ static ssize_t itmon_timeout_val_show(struct device *dev,
 	return n;
 }
 
-static ssize_t itmon_timeout_freeze_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+static ssize_t itmon_timeout_freeze_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
 {
 	unsigned long i, offset;
 	ssize_t n = 0;
@@ -1376,8 +1394,8 @@ static ssize_t itmon_timeout_freeze_show(struct device *dev,
 	return n;
 }
 
-static ssize_t itmon_timeout_store(struct device *dev,
-				struct device_attribute *attr,
+static ssize_t itmon_timeout_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
 				const char *buf, size_t count)
 {
 	char *name;
@@ -1414,8 +1432,8 @@ static ssize_t itmon_timeout_store(struct device *dev,
 	return count;
 }
 
-static ssize_t itmon_timeout_val_store(struct device *dev,
-				struct device_attribute *attr,
+static ssize_t itmon_timeout_val_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
 				const char *buf, size_t count)
 {
 	char *name;
@@ -1449,8 +1467,8 @@ static ssize_t itmon_timeout_val_store(struct device *dev,
 	return count;
 }
 
-static ssize_t itmon_timeout_freeze_store(struct device *dev,
-				struct device_attribute *attr,
+static ssize_t itmon_timeout_freeze_store(struct kobject *kobj,
+				struct kobj_attribute *attr,
 				const char *buf, size_t count)
 {
 	char *name;
@@ -1487,15 +1505,15 @@ static ssize_t itmon_timeout_freeze_store(struct device *dev,
 	return count;
 }
 
-static struct device_attribute itmon_timeout_attr =
+static struct kobj_attribute itmon_timeout_attr =
 	__ATTR(timeout_en, 0644, itmon_timeout_show, itmon_timeout_store);
-static struct device_attribute itmon_timeout_fix_attr =
+static struct kobj_attribute itmon_timeout_fix_attr =
 	__ATTR(set_val, 0644, itmon_timeout_fix_val_show, itmon_timeout_fix_val_store);
-static struct device_attribute itmon_scandump_attr =
+static struct kobj_attribute itmon_scandump_attr =
 	__ATTR(scandump_en, 0644, itmon_scandump_show, itmon_scandump_store);
-static struct device_attribute itmon_timeout_val_attr =
+static struct kobj_attribute itmon_timeout_val_attr =
 	__ATTR(timeout_val, 0644, itmon_timeout_val_show, itmon_timeout_val_store);
-static struct device_attribute itmon_timeout_freeze_attr =
+static struct kobj_attribute itmon_timeout_freeze_attr =
 	__ATTR(timeout_freeze, 0644, itmon_timeout_freeze_show, itmon_timeout_freeze_store);
 
 static struct attribute *itmon_sysfs_attrs[] = {

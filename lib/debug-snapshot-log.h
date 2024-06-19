@@ -8,22 +8,9 @@
 #include <linux/debug-snapshot-binder.h>
 #endif
 
-#ifdef DSS_ANALYZER
-
-#define TASK_COMM_LEN 16
-#define NR_CPUS 8
-#undef CONFIG_DEBUG_SNAPSHOT_LINUX_BUILD
-#include <stdio.h>
-#include <stdlib.h>
-
-#else // DSS_ANALYZER
-
 #include <linux/clk-provider.h>
 #include <linux/debug-snapshot.h>
 #include <linux/debug-snapshot-helper.h>
-
-#endif // DSS_ANALYZER
-
 #include <dt-bindings/soc/samsung/debug-snapshot-table.h>
 
 /*  Size domain */
@@ -71,9 +58,13 @@
 #define DSS_OFFSET_CORE_POWER_STAT	(0x400)
 #define DSS_OFFSET_PANIC_STAT		(0x500)
 #define DSS_OFFSET_CORE_LAST_PC		(0x600)
+
 /* S5P_VA_SS_BASE + 0x700 -- 0x8FF is reserved */
 #define DSS_OFFSET_LINUX_BANNER		(0x700)
-#define DSS_OFFSET_ITEM_INFO		(0x900)
+
+#define DSS_OFFSET_KERNEL_LOG		(0x900)
+#define DSS_OFFSET_PLATFORM_LOG		(0x904)
+#define DSS_OFFSET_KERNEL_EVENT		(0x908)
 
 /* S5P_VA_SS_BASE + 0xC00 -- 0xFFF is reserved */
 #define DSS_OFFSET_PANIC_STRING		(0xC00)
@@ -208,7 +199,7 @@ struct dbg_snapshot_log {
 	struct __freq_log {
 		unsigned long long time;
 		int cpu;
-		int type;
+		int freq_type;
 		char *freq_name;
 		unsigned long old_freq;
 		unsigned long target_freq;

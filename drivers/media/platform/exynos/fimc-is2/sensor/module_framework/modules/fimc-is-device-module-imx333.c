@@ -122,11 +122,10 @@ static const struct v4l2_subdev_ops subdev_ops = {
 };
 
 #ifdef CONFIG_OF
-static int sensor_imx333_power_setpin(struct platform_device *pdev,
+static int sensor_imx333_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 #ifdef CAMERA_REAR2_AF
 	int gpio_cam_af_2p8_en = 0; //SUB CAM AF 2.8
@@ -137,11 +136,6 @@ static int sensor_imx333_power_setpin(struct platform_device *pdev,
 	int gpio_ois_reset = 0;
 	u32 power_seq_id = 0;
 	int ret;
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	dev_info(dev, "%s E v4\n", __func__);
 
@@ -442,7 +436,7 @@ static int __init sensor_module_imx333_probe(struct platform_device *pdev)
 	dev = &pdev->dev;
 
 #ifdef CONFIG_OF
-	fimc_is_sensor_module_parse_dt(pdev, sensor_imx333_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_imx333_power_setpin);
 #endif
 
 	pdata = dev_get_platdata(dev);
@@ -492,14 +486,18 @@ static int __init sensor_module_imx333_probe(struct platform_device *pdev)
 	for (vc_idx = 0; vc_idx < 2; vc_idx++) {
 		switch (vc_idx) {
 		case VC_BUF_DATA_TYPE_SENSOR_STAT1:
-			module->vc_max_size[vc_idx].width = IMX333_PDAF_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = IMX333_PDAF_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = IMX333_PDAF_ELEMENT;
+			module->vc_extra_info[vc_idx].stat_type = VC_STAT_TYPE_INVALID;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = IMX333_PDAF_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = IMX333_PDAF_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = IMX333_PDAF_ELEMENT;
 			break;
 		case VC_BUF_DATA_TYPE_GENERAL_STAT1:
-			module->vc_max_size[vc_idx].width = IMX333_MIPI_MAXWIDTH;
-			module->vc_max_size[vc_idx].height = IMX333_MIPI_MAXHEIGHT;
-			module->vc_max_size[vc_idx].element_size = IMX333_MIPI_ELEMENT;
+			module->vc_extra_info[vc_idx].stat_type = VC_STAT_TYPE_INVALID;
+			module->vc_extra_info[vc_idx].sensor_mode = VC_SENSOR_MODE_INVALID;
+			module->vc_extra_info[vc_idx].max_width = IMX333_MIPI_MAXWIDTH;
+			module->vc_extra_info[vc_idx].max_height = IMX333_MIPI_MAXHEIGHT;
+			module->vc_extra_info[vc_idx].max_element = IMX333_MIPI_ELEMENT;
 			break;
 			}
 	}

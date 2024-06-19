@@ -126,8 +126,7 @@ struct iv_tcw_private {
  * and encrypts / decrypts at the same time.
  */
 enum flags { DM_CRYPT_SUSPENDED, DM_CRYPT_KEY_VALID,
-	     DM_CRYPT_SAME_CPU, DM_CRYPT_NO_OFFLOAD,
-	     DM_CRYPT_ENCRYPT_OVERRIDE };
+	     DM_CRYPT_SAME_CPU, DM_CRYPT_NO_OFFLOAD };
 
 enum cipher_flags {
 	CRYPT_MODE_INTEGRITY_AEAD,	/* Use authenticated mode for cihper */
@@ -1591,7 +1590,7 @@ static int kcryptd_io_read(struct dm_crypt_io *io, gfp_t gfp)
 	clone_init(io, clone);
 
 	if (crypt_mode_diskcipher(cc))
-		crypto_diskcipher_set(clone, cc->cipher_tfm.tfms_diskc[0], NULL, 0);
+		crypto_diskcipher_set(clone, cc->cipher_tfm.tfms_diskc[0], 0);
 
 	clone->bi_iter.bi_sector = cc->start + io->sector;
 
@@ -2568,9 +2567,6 @@ static int crypt_ctr_cipher_old(struct dm_target *ti, char *cipher_in, char *key
 	if (*ivmode && (!strcmp(*ivmode, "disk") || !strcmp(*ivmode, "fmp")))
 		set_bit(CRYPT_MODE_DISKCIPHER, &cc->cipher_flags);
 
-	if (tmp)
-		DMWARN("Ignoring unexpected additional cipher options");
-
 	/*
 	 * For compatibility with the original dm-crypt mapping format, if
 	 * only the cipher name is supplied, use cbc-plain.
@@ -2740,8 +2736,6 @@ static int crypt_ctr_optional(struct dm_target *ti, unsigned int argc, char **ar
 			cc->sector_shift = __ffs(cc->sector_size) - SECTOR_SHIFT;
 		} else if (!strcasecmp(opt_string, "iv_large_sectors"))
 			set_bit(CRYPT_IV_LARGE_SECTORS, &cc->cipher_flags);
-		else if (!strcasecmp(opt_string, "allow_encrypt_override"))
-			set_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags);
 		else {
 			ti->error = "Invalid feature arguments";
 			return -EINVAL;
@@ -2962,15 +2956,12 @@ static int crypt_map(struct dm_target *ti, struct bio *bio)
 	struct crypt_config *cc = ti->private;
 
 	/*
-	 * If bio is REQ_PREFLUSH, REQ_NOENCRYPT, or REQ_OP_DISCARD,
-	 * just bypass crypt queues.
+	 * If bio is REQ_PREFLUSH or REQ_OP_DISCARD, just bypass crypt queues.
 	 * - for REQ_PREFLUSH device-mapper core ensures that no IO is in-flight
 	 * - for REQ_OP_DISCARD caller must use flush if IO ordering matters
 	 */
-	if (unlikely(bio->bi_opf & REQ_PREFLUSH) ||
-	    (unlikely(bio->bi_opf & REQ_NOENCRYPT) &&
-	     test_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags)) ||
-	    bio_op(bio) == REQ_OP_DISCARD) {
+	if (unlikely(bio->bi_opf & REQ_PREFLUSH ||
+	    bio_op(bio) == REQ_OP_DISCARD)) {
 		bio_set_dev(bio, cc->dev->bdev);
 		if (bio_sectors(bio))
 			bio->bi_iter.bi_sector = cc->start +
@@ -3057,7 +3048,6 @@ static void crypt_status(struct dm_target *ti, status_type_t type,
 		num_feature_args += test_bit(DM_CRYPT_NO_OFFLOAD, &cc->flags);
 		num_feature_args += cc->sector_size != (1 << SECTOR_SHIFT);
 		num_feature_args += test_bit(CRYPT_IV_LARGE_SECTORS, &cc->cipher_flags);
-		num_feature_args += test_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags);
 		if (cc->on_disk_tag_size)
 			num_feature_args++;
 		if (num_feature_args) {
@@ -3074,8 +3064,6 @@ static void crypt_status(struct dm_target *ti, status_type_t type,
 				DMEMIT(" sector_size:%d", cc->sector_size);
 			if (test_bit(CRYPT_IV_LARGE_SECTORS, &cc->cipher_flags))
 				DMEMIT(" iv_large_sectors");
-			if (test_bit(DM_CRYPT_ENCRYPT_OVERRIDE, &cc->flags))
-				DMEMIT(" allow_encrypt_override");
 		}
 
 		break;
@@ -3184,8 +3172,8 @@ static void crypt_io_hints(struct dm_target *ti, struct queue_limits *limits)
 		max_t(unsigned, limits->physical_block_size, cc->sector_size);
 	limits->io_min = max_t(unsigned, limits->io_min, cc->sector_size);
 
-	if (crypt_mode_diskcipher(cc))
-		limits->logical_block_size = PAGE_SIZE;
+        if (crypt_mode_diskcipher(cc))
+                limits->logical_block_size = PAGE_SIZE;
 }
 
 static struct target_type crypt_target = {

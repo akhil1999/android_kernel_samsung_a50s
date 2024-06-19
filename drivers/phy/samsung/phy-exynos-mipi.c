@@ -55,7 +55,7 @@ enum phy_infos {
 struct exynos_mipi_phy_cfg {
 	u16 major;
 	u16 minor;
-	u16 mode;
+	u32 type;
 	/* u32 max_speed */
 	int (*set)(void __iomem *regs, int option, u32 *info);
 };
@@ -306,7 +306,6 @@ static int __set_phy_cfg_0502_0000_dphy(void __iomem *regs, int option, u32 *cfg
 	int i;
 	u32 settle_clk_sel = 1;
 	u32 skew_delay_sel = 0;
-	u32 type = cfg[TYPE] & 0xffff;
 
 	if (cfg[SPEED] >= PHY_REF_SPEED)
 		settle_clk_sel = 0;
@@ -336,9 +335,7 @@ static int __set_phy_cfg_0502_0000_dphy(void __iomem *regs, int option, u32 *cfg
 		writel(0x00000005, regs + 0x0110 + (i * 0x100)); /* SD_ANA_CON2 */
 		update_bits(regs + 0x0110 + (i * 0x100), 8, 2, skew_delay_sel); /* SD_ANA_CON2 */
 		writel(0x00000600, regs + 0x0114 + (i * 0x100)); /* SD_ANA_CON3 */
-		/* DC Combo lane has below SFR (0/1/2) */
-		if ((type == 0xDC) && (i < 3))
-			writel(0x00000040, regs + 0x0124 + (i * 0x100)); /* SD_ANA_CON7 */
+		writel(0x00000040, regs + 0x0124 + (i * 0x100)); /* SD_ANA_CON7 */
 		update_bits(regs + 0x0130 + (i * 0x100), 0, 8, cfg[SETTLE]); /* SD_TIME_CON0 */
 		update_bits(regs + 0x0130 + (i * 0x100), 8, 1, settle_clk_sel); /* SD_TIME_CON0 */
 		writel(0x00000003, regs + 0x0134 + (i * 0x100)); /* SD_TIME_CON1 */
@@ -382,9 +379,8 @@ static int __set_phy_cfg_0502_0001_dphy(void __iomem *regs, int option, u32 *cfg
 		writel(0x00009000, regs + 0x000c + (i * 0x100)); /* SD_ANA_CON1 */
 		writel(0x00000005, regs + 0x0010 + (i * 0x100)); /* SD_ANA_CON2 */
 		update_bits(regs + 0x0010 + (i * 0x100), 8, 2, skew_delay_sel); /* SD_ANA_CON2 */
-		update_bits(regs + 0x0010 + (i * 0x100), 15, 1, 1); /* RESETN_CFG_SEL */
-		update_bits(regs + 0x0010 + (i * 0x100), 7, 1, 1); /* RXDDRCLKHS_SEL */
 		writel(0x00000600, regs + 0x0014 + (i * 0x100)); /* SD_ANA_CON3 */
+		writel(0x00000040, regs + 0x0024 + (i * 0x100)); /* SD_ANA_CON7 */
 		update_bits(regs + 0x0030 + (i * 0x100), 0, 8, cfg[SETTLE]); /* SD_TIME_CON0 */
 		update_bits(regs + 0x0030 + (i * 0x100), 8, 1, settle_clk_sel); /* SD_TIME_CON0 */
 		writel(0x00000003, regs + 0x0034 + (i * 0x100)); /* SD_TIME_CON1 */
@@ -398,19 +394,19 @@ static const struct exynos_mipi_phy_cfg phy_cfg_table[] = {
 	{
 		.major = 0x0501,
 		.minor = 0x0000,
-		.mode = 0xD,
+		.type = 0xD,
 		.set = __set_phy_cfg_0501_0000_dphy,
 	},
 	{
 		.major = 0x0502,
 		.minor = 0x0000,
-		.mode = 0xD,
+		.type = 0xD,
 		.set = __set_phy_cfg_0502_0000_dphy,
 	},
 	{
 		.major = 0x0502,
 		.minor = 0x0001,
-		.mode = 0xD,
+		.type = 0xD,
 		.set = __set_phy_cfg_0502_0001_dphy,
 	},
 	{ },
@@ -426,7 +422,7 @@ static int __set_phy_cfg(struct exynos_mipi_phy *state,
 	for (i = 0; i < ARRAY_SIZE(phy_cfg_table); i++) {
 		if ((cfg[VERSION] == MKVER(phy_cfg_table[i].major,
 					phy_cfg_table[i].minor))
-		    && ((cfg[TYPE] >> 16) == phy_cfg_table[i].mode)) {
+		    && (cfg[TYPE] == phy_cfg_table[i].type)) {
 			ret = phy_cfg_table[i].set(phy_desc->regs,
 					option, cfg);
 			break;

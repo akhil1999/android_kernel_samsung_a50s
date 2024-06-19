@@ -78,9 +78,6 @@ struct fimc_is_device_ischain;
 #define OIS_I2C_ADDR_MASK		0xFF0000
 #define OIS_I2C_ADDR_SHIFT		16
 
-#define SENSOR_OTP_PAGE			256
-#define SENSOR_OTP_PAGE_SIZE		64
-
 #define SENSOR_SIZE_WIDTH_MASK		0xFFFF0000
 #define SENSOR_SIZE_WIDTH_SHIFT		16
 #define SENSOR_SIZE_HEIGHT_MASK		0xFFFF
@@ -214,8 +211,7 @@ enum fimc_is_ex_mode {
 	EX_DUALFPS_960 = 3,
 	EX_DUALFPS_480 = 4,
 	EX_PDAF_OFF = 5,
-	EX_SSM_TEST = 6,
-	EX_3DHDR = 7,
+	EX_3DHDR = 6,
 };
 
 struct fimc_is_sensor_cfg {
@@ -287,7 +283,6 @@ struct fimc_is_module_enum {
 	struct fimc_is_sensor_cfg			*cfg;
 	struct fimc_is_sensor_vc_extra_info		vc_extra_info[VC_BUF_DATA_TYPE_MAX];
 	u32						vc_buffer_offset[CSI_VIRTUAL_CH_MAX];
-	u32						power_retry;
 	struct i2c_client				*client;
 	struct sensor_open_extended			ext;
 	struct fimc_is_sensor_ops			*ops;
@@ -327,20 +322,6 @@ enum sensor_subdev_internel_use {
 	SUBDEV_SSVC1_INTERNAL_USE,
 	SUBDEV_SSVC2_INTERNAL_USE,
 	SUBDEV_SSVC3_INTERNAL_USE,
-};
-
-/*
- * Cal data status
- * [0]: NO ERROR
- * [1]: CRC FAIL
- * [2]: LIMIT FAIL
- * => Check AWB out of the ratio EEPROM/OTP data
- */
-
-enum fimc_is_sensor_cal_status {
-	CRC_NO_ERROR = 0,
-	CRC_ERROR,
-	LIMIT_FAILURE,
 };
 
 struct fimc_is_device_sensor {
@@ -431,8 +412,6 @@ struct fimc_is_device_sensor {
 	struct v4l2_subdev				*subdev_mcu;
 	struct fimc_is_mcu				*mcu;
 	struct v4l2_subdev				*subdev_aperture;
-	struct v4l2_subdev				*subdev_eeprom;
-	struct fimc_is_eeprom				*eeprom;
 	struct fimc_is_aperture				*aperture;
 	void						*private_data;
 	struct fimc_is_group				group_sensor;
@@ -459,12 +438,6 @@ struct fimc_is_device_sensor {
 #ifdef ENABLE_REMOSAIC_CAPTURE_WITH_ROTATION
 	struct fimc_is_frame				*mode_chg_frame;
 #endif
-
-	bool					use_otp_cal;
-	const char				*otp_filename;
-	u32					cal_status[CAMERA_CRC_INDEX_MAX];
-	u8					otp_cal_buf[SENSOR_OTP_PAGE][SENSOR_OTP_PAGE_SIZE];
-	u32					otp_file_write;
 };
 
 int fimc_is_sensor_open(struct fimc_is_device_sensor *device,

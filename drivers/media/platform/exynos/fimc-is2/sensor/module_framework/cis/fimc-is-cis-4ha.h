@@ -20,10 +20,15 @@
 #define SENSOR_4HA_MAX_HEIGHT		(2448 + 0)
 
 /* TODO: Check below values are valid */
-#define SENSOR_4HA_FINE_INTEGRATION_TIME_MIN                0x1C5
-#define SENSOR_4HA_FINE_INTEGRATION_TIME_MAX                0x1C5
-#define SENSOR_4HA_COARSE_INTEGRATION_TIME_MIN              0x1
+#define SENSOR_4HA_FINE_INTEGRATION_TIME_MIN                0xDD8
+#define SENSOR_4HA_FINE_INTEGRATION_TIME_MAX                0xDD8
+#define SENSOR_4HA_COARSE_INTEGRATION_TIME_MIN              0x2
 #define SENSOR_4HA_COARSE_INTEGRATION_TIME_MAX_MARGIN       0x4
+
+#define SENSOR_4HA_COARSE_INTEG_TIME_ADDR                   (0x0202)
+#define SENSOR_4HA_FRAME_LENGTH_LINES_ADDR                  (0x0340)
+#define SENSOR_4HA_GLOBAL_AGAIN_CODE_ADDR                   (0x0204)
+#define SENSOR_4HA_DGAIN_CODE_ADDR                          (0x020E)
 
 #define USE_GROUP_PARAM_HOLD	(0)
 

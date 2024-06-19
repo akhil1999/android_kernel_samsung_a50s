@@ -18,7 +18,6 @@ struct diskcipher_alg;
 struct crypto_diskcipher {
 	u32 algo;
 	unsigned int ivsize;
-	struct inode *inode;
 #ifdef USE_FREE_REQ
 	/* for crypto_free_req_diskcipher */
 	unsigned long req_jiffies;
@@ -136,7 +135,6 @@ void crypto_free_req_diskcipher(struct crypto_diskcipher *tfm);
  * @bio: bio structure
  */
 struct crypto_diskcipher *crypto_diskcipher_get(struct bio *bio);
-struct inode *crypto_diskcipher_get_inode(struct bio *bio);
 
 /**
  * crypto_diskcipher_set() - set diskcipher to bio
@@ -146,7 +144,7 @@ struct inode *crypto_diskcipher_get_inode(struct bio *bio);
  * This functions set thm to bio->bi_aux_private to pass it to host driver.
  *
  */
-void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, const struct inode *inode, u64 dun);
+void crypto_diskcipher_set(struct bio *bio, struct crypto_diskcipher *tfm, u64 dun);
 
 /**
  * crypto_diskcipher_setkey() - set key for cipher
@@ -255,7 +253,6 @@ void crypto_diskcipher_debug(enum diskcipher_dbg dbg, int idx);
 #define crypto_free_diskcipher(a) ((void)0)
 #define crypto_free_req_diskcipher(a) ((void)0)
 #define crypto_diskcipher_get(a) ((void *)NULL)
-#define crypto_diskcipher_get_inode(a) ((void *)NULL)
 #define crypto_diskcipher_set(a, b, c, d) ((void)0)
 #define crypto_diskcipher_clearkey(a) ((void)0)
 #define crypto_diskcipher_setkey(a, b, c, d) (-1)

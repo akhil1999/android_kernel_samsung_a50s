@@ -653,6 +653,10 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
 				err_str = GET_STR(CSIS_ERR_DMA_ERR_DMAFIFO_FULL);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
+#ifdef USE_CAMERA_HW_BIG_DATA
+				fimc_is_vender_csi_err_handler(csi);
+				fimc_is_sec_copy_err_cnt_to_file();
+#endif
 				panic("CSIS error!! %s", err_str);
 #endif
 				break;
@@ -660,6 +664,10 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
 				err_str = GET_STR(CSIS_ERR_DMA_ERR_TRXFIFO_FULL);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
+#ifdef USE_CAMERA_HW_BIG_DATA
+				fimc_is_vender_csi_err_handler(csi);
+				fimc_is_sec_copy_err_cnt_to_file();
+#endif
 				panic("CSIS error!! %s", err_str);
 #endif
 				break;
@@ -667,6 +675,10 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 				fimc_is_debug_event_count(FIMC_IS_EVENT_OVERFLOW_CSI);
 				err_str = GET_STR(CSIS_ERR_DMA_ERR_BRESP_ERR);
 #ifdef OVERFLOW_PANIC_ENABLE_CSIS
+#ifdef USE_CAMERA_HW_BIG_DATA
+				fimc_is_vender_csi_err_handler(csi);
+				fimc_is_sec_copy_err_cnt_to_file();
+#endif
 				panic("CSIS error!! %s", err_str);
 #endif
 				break;
@@ -682,6 +694,11 @@ static void csi_err_print(struct fimc_is_device_csi *csi)
 			err = find_next_bit((unsigned long *)&csi->error_id[vc], CSIS_ERR_END, err + 1);
 		}
 	}
+
+#ifdef USE_CAMERA_HW_BIG_DATA
+	if (err_str)
+		fimc_is_vender_csi_err_handler(csi);
+#endif
 }
 
 static void csi_err_handle(struct fimc_is_device_csi *csi)

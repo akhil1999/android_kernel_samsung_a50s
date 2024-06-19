@@ -360,8 +360,14 @@ int fimc_is_sensor_parse_dt(struct platform_device *pdev)
 	}
 
 	ret = of_property_read_u32(dnode, "camif_mux_val", &pdata->camif_mux_val);
-	if (ret)
+	if (ret) {
 		probe_info("skip camif sysreg mux default value read (%d)", ret);
+	}
+
+	ret = of_property_read_u32(dnode, "camif_mux_val_s", &pdata->camif_mux_val_s);
+	if (ret) {
+		probe_info("skip camif sysreg mux default(S) value read (%d)", ret);
+	}
 
 	elems = of_property_count_u32_elems(dnode, "dma_ch");
 	if (elems >= CSI_VIRTUAL_CH_MAX) {
@@ -591,18 +597,6 @@ static int parse_aperture_data(struct exynos_platform_fimc_is_module *pdata, str
 	return 0;
 }
 
-static int parse_eeprom_data(struct exynos_platform_fimc_is_module *pdata, struct device_node *dnode)
-{
-	u32 temp;
-	char *pprop;
-
-	DT_READ_U32(dnode, "product_name", pdata->eeprom_product_name);
-	DT_READ_U32(dnode, "i2c_addr", pdata->eeprom_i2c_addr);
-	DT_READ_U32(dnode, "i2c_ch", pdata->eeprom_i2c_ch);
-
-	return 0;
-}
-
 static int parse_power_seq_data(struct exynos_platform_fimc_is_module *pdata, struct device_node *dnode)
 {
 	u32 temp;
@@ -710,7 +704,6 @@ int fimc_is_module_parse_dt(struct device *dev,
 	struct device_node *aperture_np;
 	struct device_node *power_np;
 	struct device_node *internal_vc_np;
-	struct device_node *eeprom_np;
 
 	FIMC_BUG(!dev);
 	FIMC_BUG(!dev->of_node);
@@ -754,24 +747,6 @@ int fimc_is_module_parse_dt(struct device *dev,
 		goto p_err;
 	}
 
-	ret = of_property_read_u32(dnode, "rom_id", &pdata->rom_id);
-	if (ret) {
-		probe_info("rom_id dt parsing skipped\n");
-		pdata->rom_id = ROM_ID_NOTHING;
-	}
-
-	ret = of_property_read_u32(dnode, "rom_type", &pdata->rom_type);
-	if (ret) {
-		probe_info("rom_type dt parsing skipped\n");
-		pdata->rom_type = 0;
-	}
-
-	ret = of_property_read_u32(dnode, "rom_cal_index", &pdata->rom_cal_index);
-	if (ret) {
-		probe_info("rom_cal_index dt parsing skipped\n");
-		pdata->rom_cal_index = 0;
-	}
-
 	af_np = of_find_node_by_name(dnode, "af");
 	if (!af_np) {
 		pdata->af_product_name = ACTUATOR_NAME_NOTHING;
@@ -813,12 +788,6 @@ int fimc_is_module_parse_dt(struct device *dev,
 	} else {
 		parse_aperture_data(pdata, aperture_np);
 	}
-
-	eeprom_np = of_find_node_by_name(dnode, "eeprom");
-	if (!eeprom_np)
-		pdata->eeprom_product_name = EEPROM_NAME_NOTHING;
-	else
-		parse_eeprom_data(pdata, eeprom_np);
 
 	pdata->power_seq_dt = of_property_read_bool(dnode, "use_power_seq");
 	if(pdata->power_seq_dt == true) {

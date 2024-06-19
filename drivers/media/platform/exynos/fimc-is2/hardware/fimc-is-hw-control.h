@@ -123,9 +123,9 @@ enum fimc_is_hw_state {
 	HW_TUNESET,
 	HW_VRA_CH1_START,
 	HW_MCS_YSUM_CFG,
+	HW_PAFSTAT_RDMA_CFG,
 	HW_MCS_DS_CFG,
 	HW_OVERFLOW_RECOVERY,
-	HW_PAFSTAT_RDMA_CFG,
 	HW_END
 };
 
@@ -278,7 +278,6 @@ struct fimc_is_hw_ip {
 	struct hw_ip_status			status;
 	atomic_t				fcount;
 	atomic_t				instance;
-	u32					internal_fcount;
 	void __iomem				*regs;
 	resource_size_t				regs_start;
 	resource_size_t				regs_end;
@@ -290,8 +289,8 @@ struct fimc_is_hw_ip {
 	struct is_region			*region[FIMC_IS_STREAM_COUNT];
 	u32					hindex[FIMC_IS_STREAM_COUNT];
 	u32					lindex[FIMC_IS_STREAM_COUNT];
+	u32					internal_fcount[FIMC_IS_STREAM_COUNT];
 	struct fimc_is_framemgr			*framemgr;
-	struct fimc_is_framemgr			*framemgr_late;
 	struct fimc_is_hardware			*hardware;
 	/* callback interface */
 	struct fimc_is_interface		*itf;
@@ -373,7 +372,6 @@ struct fimc_is_hw_ip_ops {
 struct fimc_is_hardware {
 	struct fimc_is_hw_ip		hw_ip[HW_SLOT_MAX];
 	struct fimc_is_framemgr		framemgr[GROUP_ID_MAX];
-	struct fimc_is_framemgr		framemgr_late[GROUP_ID_MAX];
 	atomic_t			rsccount;
 
 	/* keep last configuration */
@@ -395,8 +393,24 @@ struct fimc_is_hardware {
 	u32				recovery_numbuffers;
 };
 
-void framemgr_e_barrier_common(struct fimc_is_framemgr *this, u32 index, ulong flag);
-void framemgr_x_barrier_common(struct fimc_is_framemgr *this, u32 index, ulong flag);
+#define framemgr_e_barrier_common(this, index, flag)		\
+	do {							\
+		if (in_irq()) {					\
+			framemgr_e_barrier(this, index);	\
+		} else {						\
+			framemgr_e_barrier_irqs(this, index, flag);	\
+		}							\
+	} while (0)
+
+#define framemgr_x_barrier_common(this, index, flag)		\
+	do {							\
+		if (in_irq()) {					\
+			framemgr_x_barrier(this, index);	\
+		} else {						\
+			framemgr_x_barrier_irqr(this, index, flag);	\
+		}							\
+	} while (0)
+
 u32 get_hw_id_from_group(u32 group_id);
 void fimc_is_hardware_flush_frame(struct fimc_is_hw_ip *hw_ip,
 	enum fimc_is_frame_state state,

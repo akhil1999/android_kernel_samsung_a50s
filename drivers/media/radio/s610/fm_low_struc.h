@@ -56,7 +56,7 @@ typedef u32 TIME;
 #endif
 
 #define RSSI_REF_ENABLE 0x01
-#define FM_RDS_MEM_SIZE_PARSER	2000
+#define FM_RDS_MEM_SIZE_PARSER	1000
 #define FM_RDS_MEM_SIZE	480
 #define RDS_PARSER_ENABLE 0x04
 #define FM_RADIO_RDS_PARSER_VER_CHECK 0x400
@@ -456,7 +456,7 @@ struct s610_low {
 
 	struct_fm_rx_tune_info fm_tune_info;
 
-	fm_band_s fm_bands[3];
+	fm_band_s fm_bands[2];
 
 	u16 fm_freq_steps[3];
 

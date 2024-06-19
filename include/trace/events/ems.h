@@ -331,7 +331,7 @@ TRACE_EVENT(ems_ontime_check_migrate,
 		__entry->pid			= tsk->pid;
 		__entry->cpu			= cpu;
 		__entry->migrate		= migrate;
-		strncpy(__entry->label, label, 64);
+		strncpy(__entry->label, label, 63);
 	),
 
 	TP_printk("comm=%s pid=%d target_cpu=%d migrate=%d reason=%s",
@@ -358,7 +358,7 @@ TRACE_EVENT(ems_ontime_task_wakeup,
 		__entry->pid			= tsk->pid;
 		__entry->src_cpu		= src_cpu;
 		__entry->dst_cpu		= dst_cpu;
-		strncpy(__entry->label, label, 64);
+		strncpy(__entry->label, label, 63);
 	),
 
 	TP_printk("comm=%s pid=%d src_cpu=%d dst_cpu=%d reason=%s",

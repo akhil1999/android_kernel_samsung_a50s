@@ -14,14 +14,9 @@
 
 #ifdef CONFIG_MUIC_NOTIFIER
 #include <linux/device.h>
-#if defined(CONFIG_MUIC_S2MU004)
-#include <linux/muic_mu004/muic.h>
-#include <linux/muic_mu004/muic_notifier.h>
-#else /* CONFIG_MUIC_S2MU004 */
 #include <linux/muic/muic.h>
 #include <linux/muic/muic_notifier.h>
 #endif
-#endif /* CONFIG_MUIC_S2MU004 */
 
 #include <linux/interrupt.h>
 #include "fimc-is-mem.h"
@@ -34,6 +29,12 @@
 #define VIRTUAL_COORDINATE_WIDTH		32768
 #define VIRTUAL_COORDINATE_HEIGHT		32768
 
+#ifdef USE_CAMERA_ACT_DRIVER_SOFT_LANDING 
+enum HW_SOFTLANDING_STATE{
+	HW_SOFTLANDING_PASS = 0,
+	HW_SOFTLANDING_FAIL = -200,
+};
+#endif
 struct fimc_is_cis {
 	u32				id;
 	struct v4l2_subdev		*subdev; /* connected module subdevice */
@@ -48,6 +49,7 @@ struct fimc_is_cis {
 	bool				hdr_ctrl_by_again;
 	bool				use_wb_gain;
 	bool				use_3hdr;
+	struct wb_gains			mode_chg_wb_gains;
 
 	struct fimc_is_sensor_ctl	sensor_ctls[CAM2P0_UCTL_LIST_SIZE];
 
@@ -58,13 +60,14 @@ struct fimc_is_cis {
 	bool					need_mode_change;
 	enum fimc_is_exposure_gain_count	exp_gain_cnt;
 	ae_setting				mode_chg;
-	struct wb_gains			mode_chg_wb_gains;
 
 	/* expected dms */
+	camera2_lens_dm_t		expecting_lens_dm[EXPECT_DM_NUM];
 	camera2_sensor_dm_t		expecting_sensor_dm[EXPECT_DM_NUM];
 	camera2_flash_dm_t		expecting_flash_dm[EXPECT_DM_NUM];
 
 	/* expected udm */
+	camera2_lens_udm_t		expecting_lens_udm[EXPECT_DM_NUM];
 	camera2_sensor_udm_t		expecting_sensor_udm[EXPECT_DM_NUM];
 
 	/* For sensor status dump */
@@ -83,11 +86,23 @@ struct fimc_is_cis {
 	/* Long Term Exposure Mode(LTE mode) structure */
 	struct fimc_is_long_term_expo_mode	long_term_mode;
 	struct work_struct			long_term_mode_work;
+	bool lte_work_enable;
 
 	/* sensor control delay(N+1 or N+2) */
 	u32				ctrl_delay;
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION
+#ifdef USE_CAMERA_MIPI_CLOCK_VARIATION_RUNTIME
+	struct work_struct				mipi_clock_change_work;
+#endif
+	int				mipi_clock_index_new;
+	int				mipi_clock_index_cur;
+#endif
 	u32				ae_exposure;
 	u32				ae_deltaev;
+#ifdef USE_CAMERA_FACTORY_DRAM_TEST
+	struct work_struct				factory_dramtest_work;
+	u32				factory_dramtest_section2_fcount;
+#endif
 
 	/* settings for initial AE */
 	bool				use_initial_ae;
@@ -96,12 +111,6 @@ struct fimc_is_cis {
 
 	/* settings for sensor stat */
 	void				*sensor_stats;
-
-	/* dual sync mode */
-	u32				dual_sync_mode;
-
-	struct work_struct		throttling_work;
-	bool				throttling_mode;
 };
 
 struct fimc_is_actuator_data {
@@ -157,16 +166,6 @@ struct fimc_is_actuator {
 	u32				vendor_first_pos;
 	u32				vendor_first_delay;
 	bool				vendor_use_sleep_mode;
-
-	bool					init_cal_setting;
-	bool					actual_pos_support;
-
-	void					*priv_info;
-
-	/* expecting dm/udm for actuator */
-	camera2_lens_dm_t		expecting_lens_dm[EXPECT_DM_NUM];
-	camera2_lens_udm_t		expecting_lens_udm[EXPECT_DM_NUM];
-	u32				expecting_actual_pos[EXPECT_DM_NUM];
 };
 
 struct fimc_is_aperture {
@@ -186,32 +185,11 @@ struct fimc_is_aperture {
 	struct work_struct		aperture_set_work;
 };
 
-struct fimc_is_eeprom {
-	u32				id;
-	struct v4l2_subdev			*subdev; /* connected module subdevice */
-	u32					device; /* connected sensor device */
-	struct i2c_client			*client;
-	struct fimc_is_eeprom_ops		*eeprom_ops;
-	struct fimc_is_device_sensor_peri	*sensor_peri;
-	struct mutex				*i2c_lock;
-
-	char					*data;
-	u32					total_size;
-
-	u32					file_write;
-};
-
-#define FLASH_LED_CH_MAX	(4)
 struct fimc_is_flash_data {
 	enum flash_mode			mode;
 	u32				intensity;
 	u32				firing_time_us;
-#ifdef FLASH_CAL_DATA_ENABLE
-	u32				inp_current[FLASH_LED_CH_MAX];
-	bool				cal_en;
-#endif
 	bool				flash_fired;
-	struct work_struct		pre_flash_work;
 	struct work_struct		flash_fire_work;
 	struct timer_list		flash_expire_timer;
 	struct work_struct		flash_expire_work;
@@ -225,9 +203,6 @@ struct fimc_is_flash {
 
 	int				flash_gpio;
 	int				torch_gpio;
-
-	/* for select led channel */
-	int				led_ch[FLASH_LED_CH_MAX];
 
 	struct fimc_is_flash_data	flash_data;
 	struct fimc_is_flash_expo_gain  flash_ae;
@@ -261,9 +236,6 @@ struct fimc_is_ois {
 	int				ois_power_mode;
 #endif
 	struct work_struct		ois_set_init_work;
-#ifdef USE_OIS_INIT_WORK
-	struct work_struct		init_work;
-#endif
 };
 
 struct fimc_is_mcu {
@@ -281,7 +253,7 @@ struct fimc_is_mcu {
 	char						load_fw_name[50];
 	struct fimc_is_ois			*ois;
 	struct v4l2_subdev			*subdev_ois;
-	struct fimc_is_device_ois	*ois_device;
+	struct fimc_is_device_ois *ois_device;
 	struct fimc_is_aperture		*aperture;
 	struct v4l2_subdev		*subdev_aperture;
 	struct fimc_is_aperture_ops		*aperture_ops;
@@ -301,6 +273,9 @@ struct fimc_is_preprocessor {
 	struct fimc_is_preproc_cfg	*cfg;
 
 	struct fimc_is_preprocessor_ops	*preprocessor_ops;
+#if defined (CONFIG_VENDER_MCD) || defined (CONFIG_VENDER_MCD_V2)
+	void				*private_data;
+#endif
 	struct spi_device		*spi;
 	struct mutex			*i2c_lock;
 };
@@ -369,7 +344,7 @@ struct fimc_is_pafstat_ops {
 
 	/* device specific ops */
 	int (*set_num_buffers)(struct v4l2_subdev *subdev,
-			u32 num_buffers, struct fimc_is_sensor_cfg *cfg);
+			u32 num_buffers, struct fimc_is_device_sensor *sensor);
 };
 
 struct fimc_is_pafstat {
@@ -451,9 +426,6 @@ struct fimc_is_device_sensor_peri {
 	struct fimc_is_mcu		*mcu;
 	struct v4l2_subdev		*subdev_mcu;
 
-	struct fimc_is_eeprom		*eeprom;
-	struct v4l2_subdev		*subdev_eeprom;
-
 	unsigned long			peri_state;
 
 	/* Thread for sensor and high spped recording setting */
@@ -464,10 +436,6 @@ struct fimc_is_device_sensor_peri {
 	struct kthread_work		sensor_work;
 
 	/* Thread for sensor register setting */
-	struct task_struct		*cis_global_task;
-	struct kthread_worker		cis_global_worker;
-	struct kthread_work		cis_global_work;
-
 	struct task_struct		*mode_change_task;
 	struct kthread_worker		mode_change_worker;
 	struct kthread_work		mode_change_work;
@@ -480,7 +448,6 @@ struct fimc_is_device_sensor_peri {
 };
 
 void fimc_is_sensor_work_fn(struct kthread_work *work);
-void fimc_is_sensor_global_setting_work_fn(struct kthread_work *work);
 void fimc_is_sensor_mode_change_work_fn(struct kthread_work *work);
 int fimc_is_sensor_init_sensor_thread(struct fimc_is_device_sensor_peri *sensor_peri);
 void fimc_is_sensor_deinit_sensor_thread(struct fimc_is_device_sensor_peri *sensor_peri);
@@ -497,8 +464,6 @@ struct fimc_is_device_sensor_peri *find_peri_by_preprocessor_id(struct fimc_is_d
 							u32 preprocessor);
 struct fimc_is_device_sensor_peri *find_peri_by_ois_id(struct fimc_is_device_sensor *device,
 							u32 ois);
-struct fimc_is_device_sensor_peri *find_peri_by_eeprom_id(struct fimc_is_device_sensor *device,
-							u32 eeprom);
 
 void fimc_is_sensor_set_cis_uctrl_list(struct fimc_is_device_sensor_peri *sensor_peri,
 		enum fimc_is_exposure_gain_count num_data,
@@ -514,7 +479,6 @@ int fimc_is_sensor_peri_pre_flash_fire(struct v4l2_subdev *subdev, void *arg);
 int fimc_is_sensor_peri_notify_actuator(struct v4l2_subdev *subdev, void *arg);
 int fimc_is_sensor_peri_notify_m2m_actuator(void *arg);
 int fimc_is_sensor_peri_notify_actuator_init(struct v4l2_subdev *subdev);
-int fimc_is_sensor_peri_update_actuator_dm(struct v4l2_subdev *subdev, void *arg);
 
 int fimc_is_sensor_peri_call_m2m_actuator(struct fimc_is_device_sensor *device);
 int fimc_is_sensor_initial_preprocessor_setting(struct fimc_is_device_sensor_peri *sensor_peri);
@@ -571,5 +535,4 @@ void fimc_is_sensor_peri_init_work(struct fimc_is_device_sensor_peri *sensor_per
 #define CALL_APERTUREOPS(s, op, args...) (((s)->aperture_ops->op) ? ((s)->aperture_ops->op(args)) : 0)
 #define CALL_PDPOPS(s, op, args...) (((s)->pdp_ops->op) ? ((s)->pdp_ops->op(args)) : 0)
 #define CALL_PAFSTATOPS(s, op, args...) (((s)->pafstat_ops->op) ? ((s)->pafstat_ops->op(args)) : 0)
-#define CALL_EEPROMOPS(s, op, args...) (((s)->eeprom_ops->op) ? ((s)->eeprom_ops->op(args)) : 0)
 #endif

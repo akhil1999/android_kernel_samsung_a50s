@@ -127,16 +127,12 @@ static const struct v4l2_subdev_ops subdev_ops = {
 static int sensor_module_3h1_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_none = 0, gpio_reset = 0;
 	int gpio_mclk = 0;
 	int gpio_ldos_en = 0;
 	u32 power_seq_id = 0;
 	int ret;
-
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
 
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
 	if (gpio_is_valid(gpio_reset)) {

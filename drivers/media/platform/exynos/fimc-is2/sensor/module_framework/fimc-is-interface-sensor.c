@@ -25,9 +25,6 @@
 static u8 rta_static_data[STATIC_DATA_SIZE];
 static u8 ddk_static_data[STATIC_DATA_SIZE];
 
-u32 get_vc_dma_error_occur_count;
-u32 get_vc_dma_error_frame_count;
-
 /* helper functions */
 static struct fimc_is_module_enum *get_subdev_module_enum(struct fimc_is_sensor_interface *itf)
 {
@@ -971,8 +968,7 @@ int request_sensitivity(struct fimc_is_sensor_interface *itf,
 	}
 
 	if(sensor_ctl->exposureTime != 0 && module_ctl->valid_sensor_ctrl == true) {
-		if((sensor_ctl->exposureTime != sensor_peri->cis.expecting_sensor_dm[index].exposureTime) &&
-		(sensor_peri->cis.expecting_sensor_dm[index].exposureTime == 0)) {
+		if(sensor_ctl->exposureTime != sensor_peri->cis.expecting_sensor_dm[index].exposureTime) {
 			sensor_peri->cis.expecting_sensor_dm[index].exposureTime = sensor_ctl->exposureTime;
 		}
 	}
@@ -1081,7 +1077,7 @@ int set_sensor_roi_control(struct fimc_is_sensor_interface *itf,
 		}
 	}
 
-	dbg_sensor(1, "[%s][F:%d]: %d\n", __func__, frame_count, sensor_ctl->update_3hdr_stat);
+	dbg_sensor(1, "[%s][F:%d]: %d\n", __func__, frame_count, sensor_ctl->update_roi);
 
 	return 0;
 }
@@ -1313,7 +1309,7 @@ int get_sensor_frame_timing(struct fimc_is_sensor_interface *itf,
 	*frame_length_lines = sensor_peri->cis.cis_data->frame_length_lines;
 	*max_margin_cit = sensor_peri->cis.cis_data->cur_coarse_integration_time_step;
 
-	dbg_sensor(2, "[%s](%d:%d) pclk(%d), line_length_pck(%d), frame_length_lines(%d), max_margin_cit(%d)\n",
+	dbg_sensor(2, "[%s](%d:%d) pclk(%u), line_length_pck(%d), frame_length_lines(%d), max_margin_cit(%d)\n",
 		__func__, get_vsync_count(itf), get_frame_count(itf),
 		*pclk, *line_length_pck, *frame_length_lines, *max_margin_cit);
 
@@ -1321,10 +1317,6 @@ int get_sensor_frame_timing(struct fimc_is_sensor_interface *itf,
 }
 
 int get_sensor_cur_size(struct fimc_is_sensor_interface *itf,
-#ifdef CONFIG_CAMERA_CIS_12A10_OBJ
-			u32 *cur_pos_x,
-			u32 *cur_pos_y,
-#endif
 			u32 *cur_width,
 			u32 *cur_height)
 {
@@ -1339,10 +1331,6 @@ int get_sensor_cur_size(struct fimc_is_sensor_interface *itf,
 	FIMC_BUG(!sensor_peri);
 	FIMC_BUG(!sensor_peri->cis.cis_data);
 
-#ifdef CONFIG_CAMERA_CIS_12A10_OBJ
-	*cur_pos_x = sensor_peri->cis.cis_data->cur_pos_x;
-	*cur_pos_y = sensor_peri->cis.cis_data->cur_pos_y;
-#endif
 	*cur_width = sensor_peri->cis.cis_data->cur_width;
 	*cur_height = sensor_peri->cis.cis_data->cur_height;
 
@@ -1860,8 +1848,10 @@ int update_sensor_dynamic_meta(struct fimc_is_sensor_interface *itf,
 	dm->sensor.exposureTime = sensor_peri->cis.expecting_sensor_dm[index].exposureTime;
 	dm->sensor.frameDuration = sensor_peri->cis.cis_data->cur_frame_us_time * 1000;
 	dm->sensor.sensitivity = sensor_peri->cis.expecting_sensor_dm[index].sensitivity;
-	if (sensor_peri->cis.cis_data->cur_lownoise_mode != FIMC_IS_CIS_LNOFF)
+	if (sensor_peri->cis.cis_data->cur_lownoise_mode == FIMC_IS_CIS_LN4)
 		dm->sensor.rollingShutterSkew = sensor_peri->cis.cis_data->rolling_shutter_skew * 4;
+	else if (sensor_peri->cis.cis_data->cur_lownoise_mode == FIMC_IS_CIS_LN2)
+		dm->sensor.rollingShutterSkew = sensor_peri->cis.cis_data->rolling_shutter_skew * 2;
 	else
 		dm->sensor.rollingShutterSkew = sensor_peri->cis.cis_data->rolling_shutter_skew;
 
@@ -1940,18 +1930,17 @@ int copy_sensor_ctl(struct fimc_is_sensor_interface *itf,
 
 		cis_data->video_mode = shot->ctl.aa.vendor_videoMode;
 
+#ifdef USE_SENSOR_WDR 
 		if (shot->uctl.isModeUd.wdr_mode == CAMERA_WDR_ON ||
 				shot->uctl.isModeUd.wdr_mode == CAMERA_WDR_AUTO ||
 				shot->uctl.isModeUd.wdr_mode == CAMERA_WDR_AUTO_LIKE)
 			itf->cis_mode = ITF_CIS_SMIA_WDR;
 		else
+#endif
 			itf->cis_mode = ITF_CIS_SMIA;
 
-		if (shot->uctl.cameraMode == AA_CAMERAMODE_DUAL_SYNC
-			|| shot->uctl.cameraMode == AA_CAMERAMODE_DUAL_SYNC_SAME_TIME_CONTROL)
-			cis_data->dual_sync_enable = true;
-		else
-			cis_data->dual_sync_enable = false;
+		if (cis_data->is_data.wdr_enable)
+			itf->cis_mode = ITF_CIS_SMIA_WDR;
 
 		/* set frame rate : Limit of max frame duration
 		 * Frame duration is set by
@@ -2086,6 +2075,11 @@ int get_initial_exposure_gain_of_sensor(struct fimc_is_sensor_interface *itf,
 		return -EINVAL;
 	}
 
+	if (num_data <= EXPOSURE_GAIN_COUNT_INVALID || num_data >= EXPOSURE_GAIN_COUNT_END) {
+		err("[%s] num_data is wrong (%d). num_data reset to 1 !!!\n", __func__, num_data);
+		num_data = EXPOSURE_GAIN_COUNT_1;
+	}
+
 	if (sensor_peri->cis.use_initial_ae) {
 		switch (num_data) {
 		case EXPOSURE_GAIN_COUNT_1:
@@ -2172,7 +2166,7 @@ u32 request_frame_length_line(struct fimc_is_sensor_interface *itf, u32 framelen
 	cis_data = sensor_peri->cis.cis_data;
 	FIMC_BUG(!cis_data);
 	frameDuration = fimc_is_sensor_convert_ns_to_us(sensor_peri->cis.cur_sensor_uctrl.frameDuration);
-#ifdef CAMERA_REAR2
+#ifdef REAR_SUB_CAMERA
 	cis_data->min_frame_us_time = MAX(frameDuration, cis_data->min_sync_frame_us_time + framelengthline);
 #endif
 
@@ -2430,15 +2424,10 @@ int set_flash(struct fimc_is_sensor_interface *itf,
 	flash_uctl = &sensor_ctl->cur_cam20_flash_udctrl;
 
 	sensor_ctl->flash_frame_number = frame_count;
-#ifdef FLASH_CAL_DATA_ENABLE
-	/* when use dual flash control, intensity value is ratio between warm and cool LED */
-	{
-#else
-	/* when use single flash, intensity value zero means flash off */
+
 	if (intensity == 0) {
 		mode = CAM2_FLASH_MODE_OFF;
 	} else {
-#endif
 		switch (flash_mode) {
 		case CAM2_FLASH_MODE_OFF:
 		case CAM2_FLASH_MODE_SINGLE:
@@ -2659,6 +2648,10 @@ int get_vc_dma_buf(struct fimc_is_sensor_interface *itf,
 	if (!sensor) {
 		err("failed to get sensor device");
 		return -ENODEV;
+	} else if (!test_bit(FIMC_IS_SENSOR_FRONT_START, &sensor->state)) {
+		mwarn("[T%d][F%d]sensor is NOT working.", sensor,
+				request_data_type, frame_count);
+		return -EINVAL;
 	}
 
 	csi = (struct fimc_is_device_csi *)v4l2_get_subdevdata(sensor->subdev_csi);
@@ -2714,11 +2707,6 @@ int get_vc_dma_buf(struct fimc_is_sensor_interface *itf,
 		goto err_get_framemgr;
 	}
 
-	if (frame_count < get_vc_dma_error_frame_count) {
-		get_vc_dma_error_frame_count = 0;
-		get_vc_dma_error_occur_count = 0;
-	}
-
 	frame = find_frame(framemgr, FS_FREE, frame_fcount, (void *)(ulong)frame_count);
 	if (frame) {
 		/* cache invalidate */
@@ -2734,14 +2722,7 @@ int get_vc_dma_buf(struct fimc_is_sensor_interface *itf,
 
 		trans_frame(framemgr, frame, FS_PROCESS);
 	} else {
-		if (frame_count != get_vc_dma_error_frame_count) {
-			err("failed to get a frame: fcount: %d", frame_count);
-			err("%d time occured previous frame: fcount: %d\n",
-				get_vc_dma_error_occur_count, get_vc_dma_error_frame_count);
-			get_vc_dma_error_frame_count = frame_count;
-			get_vc_dma_error_occur_count = 0;
-		}
-		get_vc_dma_error_occur_count++;
+		err("failed to get a frame: fcount: %d", frame_count);
 		ret = -EINVAL;
 		goto err_invalid_frame;
 	}
@@ -2926,9 +2907,20 @@ int get_vc_dma_buf_info(struct fimc_is_sensor_interface *itf,
 
 	buf_info->stat_type = module->vc_extra_info[request_data_type].stat_type;
 	buf_info->sensor_mode = module->vc_extra_info[request_data_type].sensor_mode;
-	buf_info->width = subdev->output.width;
-	buf_info->height = subdev->output.height;
 	buf_info->element_size = module->vc_extra_info[request_data_type].max_element;
+	if ((buf_info->sensor_mode == VC_SENSOR_MODE_IMX_2X1OCL_1_TAIL)
+		|| (buf_info->sensor_mode == VC_SENSOR_MODE_IMX_2X1OCL_2_TAIL)
+		|| (buf_info->sensor_mode == VC_SENSOR_MODE_ULTRA_PD_TAIL)
+		|| (buf_info->sensor_mode == VC_SENSOR_MODE_SUPER_PD_TAIL)
+		|| (buf_info->sensor_mode == VC_SENSOR_MODE_SUPER_PD_2_TAIL)
+		|| (buf_info->sensor_mode == VC_SENSOR_MODE_MSPD_TAIL)
+		|| (buf_info->sensor_mode == VC_SENSOR_MODE_MSPD_GLOBAL_TAIL)) {
+		buf_info->width = sensor->cfg->output[ch].width;
+		buf_info->height = sensor->cfg->output[ch].height;
+	} else {
+		buf_info->width = subdev->output.width;
+		buf_info->height = subdev->output.height;
+	}
 
 	info("VC buf (req_type(%d), stat_type(%d), width(%d), height(%d), element(%d byte))\n",
 		request_data_type, buf_info->stat_type, buf_info->width, buf_info->height, buf_info->element_size);
@@ -3109,6 +3101,7 @@ int set_long_term_expo_mode(struct fimc_is_sensor_interface *itf,
 	int ret = 0;
 	int i = 0;
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
+	struct fimc_is_device_sensor *sensor;
 	WARN_ON(!itf);
 	WARN_ON(itf->magic != SENSOR_INTERFACE_MAGIC);
 	WARN_ON(!long_term_expo_mode);
@@ -3116,30 +3109,56 @@ int set_long_term_expo_mode(struct fimc_is_sensor_interface *itf,
 	sensor_peri = container_of(itf, struct fimc_is_device_sensor_peri, sensor_interface);
 	FIMC_BUG(!sensor_peri);
 
-	/* as this function called, always set true for operate */
-	sensor_peri->cis.long_term_mode.sen_strm_off_on_enable = true;
-	sensor_peri->cis.long_term_mode.frm_num_strm_off_on_interval = long_term_expo_mode->frm_num_strm_off_on_interval;
-	sensor_peri->cis.long_term_mode.sen_strm_off_on_step = 0;
-
-	if (sensor_peri->cis.long_term_mode.sen_strm_off_on_enable) {
-		for (i = 0; i < 2; i++) {
-			sensor_peri->cis.long_term_mode.expo[i] = long_term_expo_mode->expo[i];
-			sensor_peri->cis.long_term_mode.tgain[i] = long_term_expo_mode->tgain[i];
-			sensor_peri->cis.long_term_mode.again[i] = long_term_expo_mode->again[i];
-			sensor_peri->cis.long_term_mode.dgain[i] = long_term_expo_mode->dgain[i];
-			sensor_peri->cis.long_term_mode.frm_num_strm_off_on[i] = long_term_expo_mode->frm_num_strm_off_on[i];
-		}
-
-		sensor_peri->cis.long_term_mode.frame_interval = long_term_expo_mode->frm_num_strm_off_on_interval;
-		sensor_peri->cis.long_term_mode.lemode_set.lemode = sensor_peri->cis.long_term_mode.sen_strm_off_on_enable;
+	sensor = get_device_sensor(itf);
+	if (!sensor) {
+		err("%s, failed to get sensor device", __func__);
+		return -1;
 	}
 
-	dbg_sensor(1, "[%s]: expo[0](%d), expo[1](%d), again[0](%d), again[1](%d), "
-		KERN_CONT "dgain[0](%d), again[1](%d), interval(%d)\n", __func__,
+	sensor_peri->cis.long_term_mode.sen_strm_off_on_enable = true;
+	sensor_peri->cis.long_term_mode.frm_num_strm_off_on_interval = long_term_expo_mode->frm_num_strm_off_on_interval;
+
+	sensor_peri->cis.long_term_mode.sen_strm_off_on_step = 0;
+
+	for (i = 0; i < 2; i++) {
+		sensor_peri->cis.long_term_mode.expo[i] = long_term_expo_mode->expo[i];
+		sensor_peri->cis.long_term_mode.tgain[i] = long_term_expo_mode->tgain[i];
+		sensor_peri->cis.long_term_mode.again[i] = long_term_expo_mode->again[i];
+		sensor_peri->cis.long_term_mode.dgain[i] = long_term_expo_mode->dgain[i];
+		sensor_peri->cis.long_term_mode.frm_num_strm_off_on[i] = long_term_expo_mode->frm_num_strm_off_on[i];
+	}
+
+	sensor_peri->cis.long_term_mode.frame_interval = long_term_expo_mode->frm_num_strm_off_on_interval;
+	sensor_peri->cis.long_term_mode.lemode_set.lemode = sensor_peri->cis.long_term_mode.sen_strm_off_on_enable;
+
+	/*
+	 * If this function called during streaming, lte_work should be enabled.
+	 * If not(during not streaming), set lte exp/gain before stream on
+	 */
+	if (test_bit(FIMC_IS_SENSOR_FRONT_START, &sensor->state)) {
+		sensor_peri->cis.lte_work_enable = true;
+	} else {
+		sensor_peri->cis.mode_chg.exposure = long_term_expo_mode->expo[0];
+		sensor_peri->cis.mode_chg.analog_gain = long_term_expo_mode->again[0];
+		sensor_peri->cis.mode_chg.digital_gain = long_term_expo_mode->dgain[0];
+
+		sensor_peri->cis.lte_work_enable = false;
+	}
+
+	dbg_sensor(1, "[%s]: expo[0](%d), expo[1](%d), "
+		KERN_CONT "again[0](%d), again[1](%d), "
+		KERN_CONT "dgain[0](%d), dgain[1](%d)\n", __func__,
 		long_term_expo_mode->expo[0], long_term_expo_mode->expo[1],
 		long_term_expo_mode->again[0], long_term_expo_mode->again[1],
-		long_term_expo_mode->dgain[0], long_term_expo_mode->dgain[1],
-		long_term_expo_mode->frm_num_strm_off_on_interval);
+		long_term_expo_mode->dgain[0], long_term_expo_mode->dgain[1]);
+
+	dbg_sensor(1, "[%s]: strm_off_on[0](%d), strm_off_on[1](%d)\n", __func__,
+		long_term_expo_mode->frm_num_strm_off_on[0],
+		long_term_expo_mode->frm_num_strm_off_on[1]);
+
+	dbg_sensor(1, "[%s]: interval(%d), lte_work_enable(%d)\n", __func__,
+		long_term_expo_mode->frm_num_strm_off_on_interval,
+		sensor_peri->cis.lte_work_enable);
 
 	return ret;
 }
@@ -3201,12 +3220,12 @@ int get_static_mem(int ctrl_id, void **mem, int *size) {
 
 	switch(ctrl_id) {
 	case ITF_CTRL_ID_DDK:
-		*mem = (void *)rta_static_data;
-		*size = sizeof(rta_static_data);
-		break;
-	case ITF_CTRL_ID_RTA:
 		*mem = (void *)ddk_static_data;
 		*size = sizeof(ddk_static_data);
+		break;
+	case ITF_CTRL_ID_RTA:
+		*mem = (void *)rta_static_data;
+		*size = sizeof(rta_static_data);
 		break;
 	default:
 		err("invalid itf ctrl id %d", ctrl_id);
@@ -3644,8 +3663,6 @@ int init_sensor_interface(struct fimc_is_sensor_interface *itf)
 	itf->paf_itf_ops.reserved[1] = paf_reserved;
 	itf->paf_itf_ops.reserved[2] = paf_reserved;
 	itf->paf_itf_ops.reserved[3] = paf_reserved;
-	itf->paf_itf_ops.reserved[4] = paf_reserved;
-	itf->paf_itf_ops.reserved[5] = paf_reserved;
 
 	/* MIPI-CSI interface */
 	itf->csi_itf_ops.get_vc_dma_buf = get_vc_dma_buf;

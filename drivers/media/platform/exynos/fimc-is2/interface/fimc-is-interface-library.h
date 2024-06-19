@@ -30,6 +30,8 @@
 #define LIB_MEM_TRACK_CALLSTACK
 #endif
 
+#define LIB_CDH_CODE_SIZE	(0x00004000)
+
 #define LIB_ISP_OFFSET		(0x00000080)
 #define LIB_ISP_CODE_SIZE	(0x00340000)
 
@@ -131,6 +133,7 @@ enum memory_track_type {
 	/* memory block */
 	MT_TYPE_MB_HEAP	= 0x10,
 	MT_TYPE_MB_DMA_TAAISP,
+	MT_TYPE_MB_DMA_MEDRC,
 	MT_TYPE_MB_DMA_TNR,
 
 	MT_TYPE_MB_VRA	= 0x20,
@@ -227,6 +230,7 @@ struct fimc_is_lib_support {
 	/* memory blocks */
 	struct lib_mem_block			mb_heap_rta;
 	struct lib_mem_block			mb_dma_taaisp;
+	struct lib_mem_block			mb_dma_medrc;
 	struct lib_mem_block			mb_dma_tnr;
 	struct lib_mem_block			mb_vra;
 	/* non-memory block */
@@ -326,7 +330,7 @@ int fimc_is_dva_vra(ulong kva, u32 *dva);
 void fimc_is_inv_vra(ulong kva, u32 size);
 void fimc_is_clean_vra(ulong kva, u32 size);
 
-bool fimc_is_lib_in_interrupt(void);
+bool fimc_is_lib_in_irq(void);
 
 int fimc_is_load_bin_on_boot(void);
 void fimc_is_load_ctrl_unlock(void);

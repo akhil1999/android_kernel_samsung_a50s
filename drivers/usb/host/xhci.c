@@ -693,9 +693,10 @@ static void xhci_stop(struct usb_hcd *hcd)
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 
 	mutex_lock(&xhci->mutex);
-
 	/* Only halt host and free memory after both hcds are removed */
 	if (!usb_hcd_is_primary_hcd(hcd)) {
+		/* usb core will free this hcd shortly, unset pointer */
+		xhci->shared_hcd = NULL;
 		mutex_unlock(&xhci->mutex);
 		return;
 	}
@@ -706,7 +707,6 @@ static void xhci_stop(struct usb_hcd *hcd)
 	xhci_halt(xhci);
 	xhci_reset(xhci);
 	spin_unlock_irq(&xhci->lock);
-
 	xhci_cleanup_msix(xhci);
 
 	/* Deleting Compliance Mode Recovery Timer */
@@ -1625,8 +1625,20 @@ static int xhci_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 			goto done;
 		}
 		ep->ep_state |= EP_STOP_CMD_PENDING;
+#if !defined(CONFIG_USB_HOST_SAMSUNG_FEATURE)
 		ep->stop_cmd_timer.expires = jiffies +
 			XHCI_STOP_EP_CMD_TIMEOUT * HZ;
+#else
+		if (xhci->xhc_state & XHCI_STATE_REMOVING) {
+			ep->stop_cmd_timer.expires = jiffies + 1 * HZ;
+			xhci_info(xhci, "stop_cmd_timer: 1 sec\n");
+
+		} else {
+			ep->stop_cmd_timer.expires = jiffies +
+				XHCI_STOP_EP_CMD_TIMEOUT * HZ;
+			xhci_info(xhci, "stop_cmd_timer: 5 sec\n");
+		}
+#endif
 		add_timer(&ep->stop_cmd_timer);
 		xhci_queue_stop_endpoint(xhci, command, urb->dev->slot_id,
 					 ep_index, 0);
@@ -3673,9 +3685,6 @@ static void xhci_free_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	 */
 
 out:
-#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
-	exynos_usb_audio_conn(0);
-#endif
 	return;
 }
 
@@ -3747,9 +3756,11 @@ int xhci_store_hw_info(struct usb_hcd *hcd, struct usb_device *udev)
 	hwinfo->dcbaa_dma = xhci->dcbaa->dma;
 	hwinfo->save_dma = xhci->save_dma;
 	hwinfo->cmd_ring = xhci->op_regs->cmd_ring;
-	hwinfo->slot_id = xhci->slot_id;
+	hwinfo->slot_id = udev->slot_id;
 	hwinfo->in_dma = xhci->in_dma;
 	hwinfo->in_buf = xhci->in_addr;
+	hwinfo->out_dma = xhci->out_dma;
+	hwinfo->out_buf = xhci->out_addr;
 	hwinfo->in_ctx = virt_dev->in_ctx->dma;
 	hwinfo->out_ctx = virt_dev->out_ctx->dma;
 	hwinfo->erst_addr = entry->seg_addr;
@@ -3770,16 +3781,35 @@ int xhci_set_deq(struct xhci_hcd *xhci, struct xhci_container_ctx *ctx,
 	for (i = 0; i < last_ep_ctx; ++i) {
 		unsigned int epaddr = xhci_get_endpoint_address(i);
 		struct xhci_ep_ctx *ep_ctx = xhci_get_ep_ctx(xhci, ctx, i);
+
 		if (epaddr == udev->hwinfo.in_ep ) {
-			pr_debug("[%s] set in deq : %#08llx \n",__func__, ep_ctx->deq);
+			pr_info("[%s] set in deq : %#08llx \n",
+					__func__, ep_ctx->deq);
 			if (udev->hwinfo.in_deq)
-				udev->hwinfo.old_in_deq = udev->hwinfo.in_deq;
+				udev->hwinfo.old_in_deq =
+						udev->hwinfo.in_deq;
 			udev->hwinfo.in_deq = ep_ctx->deq;
 		} else if (epaddr == udev->hwinfo.out_ep) {
-			pr_debug("[%s] set out deq : %#08llx \n",__func__, ep_ctx->deq);
+			pr_info("[%s] set out deq : %#08llx \n",
+					__func__, ep_ctx->deq);
 			if (udev->hwinfo.out_deq)
-				udev->hwinfo.old_out_deq = udev->hwinfo.out_deq;
+				udev->hwinfo.old_out_deq =
+						udev->hwinfo.out_deq;
 			udev->hwinfo.out_deq = ep_ctx->deq;
+		} else if (epaddr == udev->hwinfo.fb_out_ep) {
+			pr_info("[%s] set fb out deq : %#08llx \n",
+					__func__, ep_ctx->deq);
+			if (udev->hwinfo.fb_out_deq)
+				udev->hwinfo.fb_old_out_deq =
+						udev->hwinfo.fb_out_deq;
+			udev->hwinfo.fb_out_deq = ep_ctx->deq;
+		} else if (epaddr == udev->hwinfo.fb_in_ep) {
+			pr_info("[%s] set fb in deq : %#08llx \n",
+					__func__, ep_ctx->deq);
+			if (udev->hwinfo.fb_in_deq)
+				udev->hwinfo.fb_old_in_deq =
+						udev->hwinfo.fb_in_deq;
+			udev->hwinfo.fb_in_deq = ep_ctx->deq;
 		}
 	}
 
@@ -3799,9 +3829,6 @@ int xhci_alloc_dev(struct usb_hcd *hcd, struct usb_device *udev)
 	int ret, slot_id;
 	struct xhci_command *command;
 
-#ifdef CONFIG_SND_EXYNOS_USB_AUDIO
-	exynos_usb_audio_conn(1);
-#endif
 	command = xhci_alloc_command(xhci, false, true, GFP_KERNEL);
 	if (!command)
 		return 0;
@@ -5087,20 +5114,27 @@ int xhci_gen_setup(struct usb_hcd *hcd, xhci_get_quirks_t get_quirks)
 }
 EXPORT_SYMBOL_GPL(xhci_gen_setup);
 
+#ifdef CONFIG_USB_WAKELOCKS
 int xhci_wake_lock(struct usb_hcd *hcd, int is_lock) {
 	struct xhci_hcd *xhci = hcd_to_xhci(hcd);
 
-	xhci_info(xhci, "%s: WAKE %s\n", __func__, is_lock ? "LOCK" : "UNLOCK");
-	if (is_lock) {
-		xhci->l2_state = 0;
-		wake_lock(xhci->wakelock);
-	} else {
-		xhci->l2_state = 1;
-		wake_unlock(xhci->wakelock);
-	}
+	if (hcd == xhci->main_hcd) {
+		if (is_lock) {
+			xhci_info(xhci, "%s: WAKE LOCK\n", __func__);
+			xhci->l2_state = 0;
+			wake_lock(xhci->wakelock);
+		} else if (!hcd->driver->hub_check_speed(hcd->shared_hcd)) {
+			xhci_info(xhci, "%s: WAKE UNLOCK\n", __func__);
+			xhci->l2_state = 1;
+			wake_unlock(xhci->wakelock);
+		} else
+			xhci_info(xhci, "%s: wake unlock ignored due to USB3\n", __func__);
+	} else
+		xhci_info(xhci, "%s: %d - no main hcd\n", __func__, is_lock);
 
 	return 0;
 }
+#endif
 
 static const struct hc_driver xhci_hc_driver = {
 	.description =		"xhci-hcd",
@@ -5113,7 +5147,11 @@ static const struct hc_driver xhci_hc_driver = {
 	.irq =			xhci_irq,
 	.flags =		HCD_MEMORY | HCD_USB3 | HCD_SHARED,
 
+#ifdef CONFIG_USB_WAKELOCKS
 	.wake_lock =		xhci_wake_lock,
+#else
+	.wake_lock =		NULL,
+#endif
 	/*
 	 * basic lifecycle operations
 	 */

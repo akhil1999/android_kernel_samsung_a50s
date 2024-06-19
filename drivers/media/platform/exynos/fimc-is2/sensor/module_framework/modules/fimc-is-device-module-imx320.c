@@ -109,17 +109,11 @@ static const struct v4l2_subdev_ops subdev_ops = {
 	.pad = &pad_ops
 };
 
-static int sensor_module_imx320_power_setpin(struct platform_device *pdev,
+static int sensor_module_imx320_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device *dev;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_none = 0, gpio_reset = 0, gpio_standby = 0;
-
-	FIMC_BUG(!pdev);
-
-	dev = &pdev->dev;
-	dnode = dev->of_node;
 
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
 	if (!gpio_is_valid(gpio_reset)) {
@@ -212,7 +206,7 @@ static int __init sensor_module_imx320_probe(struct platform_device *pdev)
 
 	dev = &pdev->dev;
 
-	fimc_is_sensor_module_parse_dt(pdev, sensor_module_imx320_power_setpin);
+	fimc_is_module_parse_dt(dev, sensor_module_imx320_power_setpin);
 
 	pdata = dev_get_platdata(dev);
 	device = &core->sensor[pdata->id];

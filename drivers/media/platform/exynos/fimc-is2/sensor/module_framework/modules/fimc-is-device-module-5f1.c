@@ -203,6 +203,10 @@ static int sensor_5f1_init(struct v4l2_subdev *subdev, u32 val)
 	struct fimc_is_module_enum *module;
 	struct fimc_is_module_5f1 *module_5f1;
 	struct i2c_client *client;
+#ifdef USE_CAMERA_HW_BIG_DATA
+	struct cam_hw_param *hw_param = NULL;
+	struct fimc_is_device_sensor *device = NULL;
+#endif
 	u8 sensor_test[3] = {0,};
 	u8 page_info = 0;
 	u16 page_select = 0;
@@ -222,6 +226,12 @@ static int sensor_5f1_init(struct v4l2_subdev *subdev, u32 val)
 		ret = fimc_is_sensor_write16(client, setfile_vision_5f1_reset[i][0],
 				(u16)setfile_vision_5f1_reset[i][1]);
 		if (ret) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+			device = v4l2_get_subdev_hostdata(subdev);
+			fimc_is_sec_get_hw_param(&hw_param, device->position);
+			if (hw_param)
+				hw_param->i2c_sensor_err_cnt++;
+#endif
 			err("i2c transfer failed.%x", client->addr);
 			ret = -EINVAL;
 			goto exit;
@@ -236,6 +246,12 @@ static int sensor_5f1_init(struct v4l2_subdev *subdev, u32 val)
 		ret = fimc_is_sensor_write16(client, setfile_vision_5f1_open_clock[i][0],
 				(u16)setfile_vision_5f1_open_clock[i][1]);
 		if (ret) {
+#ifdef USE_CAMERA_HW_BIG_DATA
+			device = v4l2_get_subdev_hostdata(subdev);
+			fimc_is_sec_get_hw_param(&hw_param, device->position);
+			if (hw_param)
+				hw_param->i2c_sensor_err_cnt++;
+#endif
 			err("i2c transfer failed.");
 			ret = -EINVAL;
 			goto exit;
@@ -846,16 +862,10 @@ struct fimc_is_sensor_ops module_5f1_ops = {
 static int sensor_5f1_power_setpin(struct device *dev,
 		struct exynos_platform_fimc_is_module *pdata)
 {
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_none = 0, gpio_reset = 0;
 	int gpio_mclk = 0;
 	int gpio_iris_en = 0;
-
-	FIMC_BUG(!dev);
-
-	pr_info("%s\n", __func__);
-
-	dnode = dev->of_node;
 
 	gpio_reset = of_get_named_gpio(dnode, "gpio_reset", 0);
 	if (!gpio_is_valid(gpio_reset)) {

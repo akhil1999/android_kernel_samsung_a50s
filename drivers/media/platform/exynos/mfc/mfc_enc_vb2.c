@@ -368,7 +368,7 @@ static void mfc_enc_stop_streaming(struct vb2_queue *q)
 			mfc_change_state(ctx, MFCINST_FINISHING);
 			mfc_set_bit(ctx->num, &dev->work_bits);
 
-			while (ctx->state != MFCINST_FINISHED) {
+			while (mfc_get_buf(&ctx->buf_queue_lock, &ctx->dst_buf_queue, MFC_BUF_NO_TOUCH_USED)) {
 				ret = mfc_just_run(dev, ctx->num);
 				if (ret) {
 					mfc_err_ctx("Failed to run MFC\n");
@@ -376,6 +376,10 @@ static void mfc_enc_stop_streaming(struct vb2_queue *q)
 				}
 				if (mfc_wait_for_done_ctx(ctx, MFC_REG_R2H_CMD_FRAME_DONE_RET)) {
 					mfc_err_ctx("Waiting for LAST_SEQ timed out\n");
+					break;
+				}
+				if (ctx->state == MFCINST_FINISHED) {
+					mfc_debug(2, "all encoded buffers out\n");
 					break;
 				}
 			}
@@ -436,7 +440,7 @@ static void mfc_enc_buf_queue(struct vb2_buffer *vb)
 					ctx->framerate, buf->vb.vb2_buf.timestamp);
 
 		mfc_qos_update_last_framerate(ctx, buf->vb.vb2_buf.timestamp);
-		mfc_qos_update_framerate(ctx, 0);
+		mfc_qos_update_framerate(ctx);
 	} else {
 		mfc_err_ctx("unsupported buffer type (%d)\n", vq->type);
 	}

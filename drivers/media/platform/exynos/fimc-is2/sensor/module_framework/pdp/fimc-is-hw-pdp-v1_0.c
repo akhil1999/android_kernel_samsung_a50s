@@ -63,7 +63,7 @@ int pdp_hw_g_stat0(void __iomem *base, void *buf, size_t len)
 
 	if (len < stat0_len) {
 		stat0_len = len;
-		warn("the size of STAT0 buffer is too small: %d < %d",
+		warn("the size of STAT0 buffer is too small: %zd < %zd",
 							len, stat0_len);
 	}
 
@@ -92,6 +92,9 @@ bool pdp_hw_to_sensor_type(u32 pd_mode, u32 *sensor_type)
 	bool enable;
 
 	switch (pd_mode) {
+#if defined(CONFIG_SOC_EXYNOS9820) && !defined(CONFIG_SOC_EXYNOS9820_EVT0)
+	case PD_MSPD_TAIL:
+#endif
 	case PD_MSPD:
 		*sensor_type = SENSOR_TYPE_MSPD;
 		enable = true;
@@ -101,7 +104,9 @@ bool pdp_hw_to_sensor_type(u32 pd_mode, u32 *sensor_type)
 		enable = true;
 		break;
 	case PD_MOD2:
+#if !defined(CONFIG_SOC_EXYNOS9820) || defined(CONFIG_SOC_EXYNOS9820_EVT0)
 	case PD_MSPD_TAIL:
+#endif
 	case PD_NONE:
 		*sensor_type = SENSOR_TYPE_MOD2;
 		enable = false;

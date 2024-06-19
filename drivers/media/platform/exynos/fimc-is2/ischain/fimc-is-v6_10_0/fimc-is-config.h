@@ -61,18 +61,16 @@
 /* #define ENABLE_DIS */
 /* #define ENABLE_DNR_IN_TPU */
 #define ENABLE_DNR_IN_MCSC
-#define USE_DNR_YIC_MODE_ALWAYS
+#define NUM_OF_TNR_BUF	4 /* dual(2) & double buffering(2) */
 #define ENABLE_10BIT_MCSC
 /* #define ENABLE_DJAG_IN_MCSC */
 #define ENABLE_VRA
-#define ENABLE_VRA_FDONE_WITH_CALLBACK
+/* #define ENABLE_REPROCESSING_FD */
 #define ENABLE_VRA_CHANGE_SETFILE_PARSING
 #define ENABLE_HYBRID_FD
-#define ENABLE_REMOSAIC_CAPTURE_WITH_ROTATION
 
 #define USE_ONE_BINARY
 #define USE_RTA_BINARY
-#define USE_BINARY_PADDING_DATA_ADDED	/* for DDK signature */
 #define USE_DDK_SHUT_DOWN_FUNC
 #define ENABLE_IRQ_MULTI_TARGET
 #define FIMC_IS_ONLINE_CPU_MIN	4
@@ -93,6 +91,7 @@
 /* #define USE_SENSOR_IF_DPHY */
 #define USE_PHY_LINK
 #undef ENABLE_CLOCK_GATE
+#define ENABLE_HMP_BOOST
 /* #define ENABLE_DIRECT_CLOCK_GATE */
 
 /* FIMC-IS task priority setting */
@@ -122,8 +121,6 @@
 
 /* #define ENABLE_FULLCHAIN_OVERFLOW_RECOVERY */
 
-#undef OVERFLOW_PANIC_ENABLE_CSIS
-
 #if defined(ENABLE_FULLCHAIN_OVERFLOW_RECOVERY)
 #undef OVERFLOW_PANIC_ENABLE_ISCHAIN
 #endif
@@ -145,14 +142,12 @@
 #define USE_3AA_CROP_AFTER_BDS
 
 /* #define ENABLE_ULTRA_FAST_SHOT */
-/* #define ENABLE_FAST_AF_TRIGGER */
 #define ENABLE_HWFC
 /* #define FW_SUSPEND_RESUME */
 /* #define TPU_COMPRESSOR */
 #define USE_I2C_LOCK
 #undef ENABLE_FULL_BYPASS
 #define SENSOR_REQUEST_DELAY		2
-#define ENABLE_REMOSAIC_CAPTURE
 
 #ifdef ENABLE_IRQ_MULTI_TARGET
 #define FIMC_IS_HW_IRQ_FLAG     IRQF_GIC_MULTI_TARGET
@@ -177,12 +172,22 @@
 
 #define QOS_INTCAM
 
-/*
-#define SECURE_CAMERA_EMULATE
-#define SECURE_CAMERA_CH	(CSI_ID_D)
-#define SECURE_CAMERA_MEM_ADDR	(0xD0000000)
-#define SECURE_CAMERA_MEM_SIZE	(0x1400000)
+#ifdef CONFIG_SECURE_CAMERA_USE
+#ifdef SECURE_CAMERA_IRIS
+#undef SECURE_CAMERA_IRIS
+#endif
+#define SECURE_CAMERA_FACE	/* For face Detection and face authentication */
+#define SECURE_CAMERA_CH		(1 << CSI_ID_B)
+#define SECURE_CAMERA_HEAP_ID		(11)
+#define SECURE_CAMERA_MEM_ADDR		(0xA1000000)	/* secure_camera_heap */
+#define SECURE_CAMERA_MEM_SIZE		(0x02B00000)
+#define NON_SECURE_CAMERA_MEM_ADDR	(0xA3B00000)	/* camera_heap */
+#define NON_SECURE_CAMERA_MEM_SIZE	(0x18C00000)
 
+/* #define SECURE_CAMERA_FACE_SEQ_CHK */ /* To check sequence before applying secure protection */
+#endif
+
+/*
 #define MODULE_2L7_MODE2
 #define MODULE_2L2_MODE2
 */
@@ -191,23 +196,25 @@
 
 /* HACK */
 #define DISABLE_CHECK_PERFRAME_FMT_SIZE
+#define DISABLE_CORE_IDLE_STATE
 
 /* #define BDS_DVFS */
 #define ENABLE_HW_FAST_READ_OUT
 #define FULL_OTF_TAIL_GROUP_ID		GROUP_ID_MCS0
 
+#define CHAIN_SKIP_GFRAME_FOR_VRA
+
 /* init AWB */
-#define ENABLE_INIT_AWB
+/* #define ENABLE_INIT_AWB */
 #define WB_GAIN_COUNT		(4)
 #define INIT_AWB_COUNT_REAR	(3)
 #define INIT_AWB_COUNT_FRONT	(7)
 
-/* sensor module use_work option */
-#define USE_OIS_INIT_WORK
-#define USE_PRE_FLASH_FIRE_WORK
-
-#define FLASH_CAL_DATA_ENABLE
-
 #define CHAIN_USE_VC_TASKLET	0
+
+#define STRIPE_REGION_NUM		(2)
+#define STRIPE_MARGIN_WIDTH		(512)
+#define STRIPE_WIDTH_ALIGN		(512)
+#define STRIPE_RATIO_PRECISION		(1000)
 
 #endif

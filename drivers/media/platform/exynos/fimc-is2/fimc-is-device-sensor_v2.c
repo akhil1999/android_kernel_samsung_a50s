@@ -32,8 +32,8 @@
 #if defined(CONFIG_SECURE_CAMERA_USE)
 #include <linux/smc.h>
 #endif
-#ifdef CONFIG_SCHED_EHMP
-#include <linux/ehmp.h>
+#ifdef CONFIG_SCHED_EMS
+#include <linux/ems.h>
 #endif
 
 #include "fimc-is-core.h"
@@ -63,7 +63,7 @@ extern struct pm_qos_request exynos_isp_qos_cam;
 extern struct pm_qos_request exynos_isp_qos_mem;
 extern struct pm_qos_request exynos_isp_qos_hpg;
 
-#ifdef CONFIG_SCHED_EHMP
+#ifdef CONFIG_SCHED_EMS
 extern struct gb_qos_request gb_req;
 #endif
 
@@ -329,7 +329,7 @@ struct fimc_is_sensor_cfg *fimc_is_sensor_g_mode(struct fimc_is_device_sensor *d
 	framerate = device->image.framerate;
 	ex_mode = device->ex_mode;
 
-	merr("try to find sensor mode(%dx%d@%d) ex_mode(%d)", device,
+	minfo("try to find sensor mode(%dx%d@%d) ex_mode(%d)", device,
 		width,
 		height,
 		framerate,
@@ -382,7 +382,7 @@ struct fimc_is_sensor_cfg *fimc_is_sensor_g_mode(struct fimc_is_device_sensor *d
 	}
 #endif
 
-	merr("sensor mode(%dx%d@%d) ex_mode(%d) = %d (lane:%d)\n", device,
+	minfo("sensor mode(%dx%d@%d) ex_mode(%d) = %d (lane:%d)\n", device,
 		select->width,
 		select->height,
 		select->framerate,
@@ -887,6 +887,8 @@ static int fimc_is_sensor_stop(struct fimc_is_device_sensor *device)
 	int retry = 10;
 
 	struct v4l2_subdev *subdev_module;
+	struct fimc_is_device_csi *csi;
+	long timetowait;
 
 	FIMC_BUG(!device);
 
@@ -914,6 +916,20 @@ static int fimc_is_sensor_stop(struct fimc_is_device_sensor *device)
 
 	subdev_module = device->subdev_module;
 	if (subdev_module) {
+		csi = v4l2_get_subdevdata(device->subdev_csi);
+		if (!csi) {
+			merr("CSI is NULL", device);
+			return -EINVAL;
+		}
+
+		/* HACK: if sensor stop called at Vblank time,
+		 * wait for next vvalid time for prevent sensor malfunction
+		 */
+		timetowait = wait_event_timeout(csi->wait_queue,
+				atomic_read(&csi->vvalid), 30);
+		if (!timetowait)
+			mwarn("wait CSI VVALID timeout (%ld)", csi, timetowait);
+
 		ret = v4l2_subdev_call(subdev_module, video, s_stream, false);
 		if (ret)
 			merr("v4l2_subdev_call(s_stream) is fail(%d)", device, ret);
@@ -1011,19 +1027,7 @@ int fimc_is_sensor_dm_tag(struct fimc_is_device_sensor *device,
 #ifdef DBG_JITTER
 		fimc_is_jitter(frame->shot->dm.sensor.timeStamp);
 #endif
-		strncpy(frame->shot_ext->user.ddk_version.ddk_version,
-			fimc_is_ischain_get_version(FIMC_IS_BIN_DDK_LIBRARY), 60);
-		strncpy(frame->shot_ext->user.ddk_version.setfile_version,
-			fimc_is_ischain_get_version(FIMC_IS_BIN_SETFILE), 60);
-
-		frame->shot_ext->user.ddk_version.header1 = 0xF85A20B4;
-		frame->shot_ext->user.ddk_version.header2 = 0xCA539ADF;
 	}
-
-	ret = v4l2_subdev_call(device->subdev_module, core, ioctl,
-			V4L2_CID_ACTUATOR_UPDATE_DYNAMIC_META, (void *)frame);
-	if (ret)
-		merr("update actuator dynamic meta is fail", device);
 
 	return ret;
 }
@@ -1033,6 +1037,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 {
 	int i = 0;
 	int ret = 0;
+	u32 fcount;
 	struct fimc_is_framemgr *framemgr;
 	struct fimc_is_frame *frame;
 	struct fimc_is_device_csi *csi;
@@ -1047,7 +1052,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 	FIMC_BUG(!device);
 	FIMC_BUG(!arg);
 
-	device->fcount = *(u32 *)arg;
+	fcount = *(u32 *)arg;
 
 	if (device->instant_cnt) {
 		device->instant_cnt--;
@@ -1065,7 +1070,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 		if (framemgr)
 			frame = peek_frame(framemgr, FS_PROCESS);
 
-		if (frame && frame->fcount == device->fcount)
+		if (frame && frame->fcount == fcount)
 			TIME_SHOT(TMS_SHOT2);
 	}
 
@@ -1104,7 +1109,7 @@ static int fimc_is_sensor_notify_by_fstr(struct fimc_is_device_sensor *device, v
 			}
 			frameptr = (ctrl.value + dma_subdev->vc_buffer_offset) % framemgr->num_frames;
 			frame = &framemgr->frames[frameptr];
-			frame->fcount = device->fcount;
+			frame->fcount = fcount;
 
 			mdbgd_sensor("%s, VC%d[%d] = %d\n", device, __func__,
 						i, frameptr, frame->fcount);
@@ -1202,12 +1207,43 @@ static int fimc_is_sensor_notify_by_dma_end(struct fimc_is_device_sensor *device
 	struct fimc_is_frame *frame;
 	struct fimc_is_module_enum *module = NULL;
 	struct fimc_is_device_sensor_peri *sensor_peri = NULL;
+#ifdef USE_CAMERA_EMBEDDED_HEADER
+	struct fimc_is_cis *cis = NULL;
+	u32 hashkey;
+	u16 frame_id;
+#endif
 
 	FIMC_BUG(!device);
 
 	frame = (struct fimc_is_frame *)arg;
 	if (frame) {
 		switch (notification) {
+#ifdef USE_CAMERA_EMBEDDED_HEADER
+		case CSIS_NOTIFY_DMA_END_VC_EMBEDDED:
+			hashkey = frame->fcount % FIMC_IS_TIMESTAMP_HASH_KEY;
+
+			ret = fimc_is_sensor_g_module(device, &module);
+			if (ret) {
+				warn("%s sensor_g_module failed(%d)", __func__, ret);
+				return -EINVAL;
+			}
+
+			sensor_peri = (struct fimc_is_device_sensor_peri *)module->private_data;
+			if (sensor_peri == NULL) {
+				warn("sensor_peri is null");
+				return -EINVAL;
+			};
+
+			if (sensor_peri->subdev_cis) {
+				cis = (struct fimc_is_cis *)v4l2_get_subdevdata(sensor_peri->subdev_cis);
+
+				CALL_CISOPS(cis, cis_get_frame_id, sensor_peri->subdev_cis,
+						(u8 *)frame->kvaddr_buffer[0], &frame_id);
+
+				device->frame_id[hashkey] = frame_id;
+			}
+			break;
+#endif
 		case CSIS_NOTIFY_DMA_END_VC_MIPISTAT:
 			ret = fimc_is_sensor_g_module(device, &module);
 			if (ret) {
@@ -1344,29 +1380,53 @@ static void fimc_is_sensor_instanton(struct work_struct *data)
 	int ret = 0;
 	u32 instant_cnt;
 	struct fimc_is_device_sensor *device;
+	struct fimc_is_core *core;
 
 	FIMC_BUG_VOID(!data);
 
 	device = container_of(data, struct fimc_is_device_sensor, instant_work);
 	instant_cnt = device->instant_cnt;
+	core = (struct fimc_is_core *)device->private_data;
 
 	clear_bit(FIMC_IS_SENSOR_FRONT_DTP_STOP, &device->state);
 	clear_bit(FIMC_IS_SENSOR_BACK_NOWAIT_STOP, &device->state);
 	clear_bit(SENSOR_MODULE_GOT_INTO_TROUBLE, &device->state);
 
 	TIME_LAUNCH_STR(LAUNCH_SENSOR_START);
+
+	mutex_lock(&core->mutex_reboot);
+	if (core->reboot) {
+		minfo("system is rebooting, don't start sensor\n", device);
+
+		if (v4l2_subdev_call(device->subdev_csi, video,
+					s_stream, IS_DISABLE_STREAM))
+			merr("failed to disable CSI subdev", device);
+
+		ret = -EINVAL;
+
+		mutex_unlock(&core->mutex_reboot);
+		goto dont_start_sensor;
+	}
+
 	ret = fimc_is_sensor_start(device);
 	if (ret) {
-		struct v4l2_subdev *subdev_csi;
-		subdev_csi = device->subdev_csi;
+		merr("failed to start sensor: %d", device, ret);
 
-		merr("fimc_is_sensor_start is fail(%d)\n", device, ret);
-		/* csi disable when error occured */
-		ret = v4l2_subdev_call(subdev_csi, video, s_stream, IS_DISABLE_STREAM);
-		if (ret)
-			merr("v4l2_csi_call(s_stream) is fail(%d)", device, ret);
-		goto p_err;
+		/* disable CSI when error occured */
+		if (v4l2_subdev_call(device->subdev_csi, video,
+					s_stream, IS_DISABLE_STREAM))
+			merr("failed to disable CSI subdev", device);
+
+		ret = -EINVAL;
+
+		mutex_unlock(&core->mutex_reboot);
+		goto err_sensor_start;
 	}
+
+	set_bit(FIMC_IS_SENSOR_FRONT_START, &device->state);
+	mutex_unlock(&core->mutex_reboot);
+
+	TIME_LAUNCH_END(LAUNCH_SENSOR_START);
 
 #ifdef ENABLE_DTP
 	if (device->dtp_check) {
@@ -1374,10 +1434,6 @@ static void fimc_is_sensor_instanton(struct work_struct *data)
 		info("DTP checking...\n");
 	}
 #endif
-
-	set_bit(FIMC_IS_SENSOR_FRONT_START, &device->state);
-
-	TIME_LAUNCH_END(LAUNCH_SENSOR_START);
 
 #ifdef FW_SUSPEND_RESUME
 	if (!instant_cnt) {
@@ -1421,7 +1477,8 @@ static void fimc_is_sensor_instanton(struct work_struct *data)
 		TIME_LAUNCH_END(LAUNCH_TOTAL);
 	}
 
-p_err:
+err_sensor_start:
+dont_start_sensor:
 	device->instant_ret = ret;
 }
 
@@ -2107,27 +2164,6 @@ int fimc_is_sensor_s_input(struct fimc_is_device_sensor *device,
 	} else {
 		sensor_peri->subdev_aperture = NULL;
 		sensor_peri->aperture = NULL;
-	}
-
-	/* set eeprom data */
-	if (device->eeprom && module->ext.eeprom_con.product_name == device->eeprom->id) {
-		u32 i2c_channel = module->ext.eeprom_con.peri_setting.i2c.channel;
-		sensor_peri->subdev_eeprom = device->subdev_eeprom;
-		sensor_peri->eeprom = device->eeprom;
-		sensor_peri->eeprom->sensor_peri = sensor_peri;
-		if (i2c_channel < SENSOR_CONTROL_I2C_MAX)
-			sensor_peri->eeprom->i2c_lock = &core->i2c_lock[i2c_channel];
-		else
-			mwarn("wrong eeprom i2c_channel(%d)", device, i2c_channel);
-
-		if (sensor_peri->eeprom)
-			set_bit(FIMC_IS_SENSOR_EEPROM_AVAILABLE, &sensor_peri->peri_state);
-
-		info("%s[%d] enable eeprom i2c client. position = %d\n",
-				__func__, __LINE__, core->current_position);
-	} else {
-		sensor_peri->subdev_eeprom = NULL;
-		sensor_peri->eeprom = NULL;
 	}
 
 	fimc_is_sensor_peri_init_work(sensor_peri);
@@ -2861,7 +2897,7 @@ int fimc_is_sensor_g_csis_error(struct fimc_is_device_sensor *device)
 	return errorCode;
 }
 
-int __nocfi fimc_is_sensor_register_itf(struct fimc_is_device_sensor *device)
+int fimc_is_sensor_register_itf(struct fimc_is_device_sensor *device)
 {
 	int ret = 0;
 	struct v4l2_subdev *subdev = NULL;
@@ -3271,7 +3307,6 @@ int fimc_is_sensor_front_start(struct fimc_is_device_sensor *device,
 	struct v4l2_subdev *subdev_module;
 	struct v4l2_subdev *subdev_csi;
 	struct fimc_is_module_enum *module;
-	struct fimc_is_core *core;
 
 	FIMC_BUG(!device);
 	FIMC_BUG(!device->pdata);
@@ -3281,13 +3316,6 @@ int fimc_is_sensor_front_start(struct fimc_is_device_sensor *device,
 		merr("already front start", device);
 		ret = -EINVAL;
 		goto p_err;
-	}
-
-	core = (struct fimc_is_core *)device->private_data;
-	if (core && core->reboot) {
-		minfo("%s: skip sensor_front_start() - reboot(%d)\n",
-			device, __func__, core->reboot);
-		return -EINVAL;
 	}
 
 	memset(device->timestamp, 0x0, FIMC_IS_TIMESTAMP_HASH_KEY * sizeof(u64));
@@ -3388,7 +3416,7 @@ int fimc_is_sensor_front_stop(struct fimc_is_device_sensor *device)
 		goto reset_the_others;
 	}
 
-	if (!test_bit(FIMC_IS_SENSOR_FRONT_START, &device->state)) {
+	if (!test_and_clear_bit(FIMC_IS_SENSOR_FRONT_START, &device->state)) {
 		mwarn("already front stop", device);
 		goto already_stopped;
 	}
@@ -3404,7 +3432,6 @@ int fimc_is_sensor_front_stop(struct fimc_is_device_sensor *device)
 		merr("v4l2_csi_call(s_stream) is fail(%d)", device, ret);
 
 	set_bit(FIMC_IS_SENSOR_BACK_NOWAIT_STOP, &device->state);
-	clear_bit(FIMC_IS_SENSOR_FRONT_START, &device->state);
 
 reset_the_others:
 	if (device->use_standby)
@@ -3613,7 +3640,7 @@ p_err:
 #if defined(CONFIG_HMP_VARIABLE_SCALE)
 			if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 				set_hmp_boost(0);
-#elif defined(CONFIG_SCHED_EHMP)
+#elif defined(CONFIG_SCHED_EMS)
 			if (core->resourcemgr.dvfs_ctrl.cur_hmp_bst)
 				gb_qos_update_request(&gb_req, 0);
 #endif
@@ -3731,8 +3758,6 @@ static int fimc_is_sensor_shot(struct fimc_is_device_ischain *ischain,
 		goto p_err;
 	}
 
-	if (sensor->cfg->pd_mode == PD_MSPD_TAIL || sensor->cfg->pd_mode == PD_MSPD)
-		frame->shot->uctl.isModeUd.paf_mode = CAMERA_PAF_ON;
 #ifdef ENABLE_INIT_AWB
 	if ((frame->shot->ctl.aa.awbMode == AA_AWBMODE_WB_AUTO)
 		&& (frame->fcount <= sensor->init_wb_cnt)

@@ -39,6 +39,59 @@
 #include "fimc-is-device-module-base.h"
 
 static struct fimc_is_sensor_cfg config_module_3m3[] = {
+#if defined(CONFIG_SOC_EXYNOS9820) && !defined(CONFIG_SOC_EXYNOS9820_EVT0)
+			/* width, height, fps, settle, mode, lane, speed, interleave, pd_mode */
+	FIMC_IS_SENSOR_CFG(4032, 3024, 30, 0, 0, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 4032, 3024), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 736), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(4032, 2268, 30, 0, 1, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 4032, 2268), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 544), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(4032, 1960, 30, 0, 2, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 4032, 1960), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 480), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(4032, 1908, 30, 0, 3, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+		VC_IN(0, HW_FORMAT_RAW10, 4032, 1908), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 480), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(3024, 3024, 30, 0, 4, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 3024, 3024), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 96, 736), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(2016, 1512, 30, 0, 5, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2016, 1512), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 736), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(1504, 1504, 30, 0, 6, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 1504, 1504), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 96, 704), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(1920, 1080, 60, 0, 7, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 1920, 1080), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 60, 256), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+	FIMC_IS_SENSOR_CFG(1344, 756, 120, 0, 8, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
+		VC_IN(0, HW_FORMAT_RAW10, 1344, 756), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
+	FIMC_IS_SENSOR_CFG(2016, 1134, 30, 0, 9, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_MSPD_TAIL,
+		VC_IN(0, HW_FORMAT_RAW10, 2016, 1134), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(1, HW_FORMAT_RAW10, 128, 544), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
+		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_MIPISTAT, 39424, 1),
+		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_USER, VC_PRIVATE, 1756, 1)),
+#else
 			/* width, height, fps, settle, mode, lane, speed, interleave, pd_mode */
 	FIMC_IS_SENSOR_CFG(4032, 3024, 30, 0, 0, CSI_DATA_LANES_4, 1196, CSI_MODE_VC_ONLY, PD_NONE,
 		VC_IN(0, HW_FORMAT_RAW10, 4032, 3024), VC_OUT(HW_FORMAT_RAW10, VC_NOTHING, 0, 0),
@@ -90,6 +143,7 @@ static struct fimc_is_sensor_cfg config_module_3m3[] = {
 		VC_IN(1, HW_FORMAT_RAW10, 128, 544), VC_OUT(HW_FORMAT_RAW10, VC_TAILPDAF, 128, 544),
 		VC_IN(2, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0),
 		VC_IN(3, HW_FORMAT_UNKNOWN, 0, 0), VC_OUT(HW_FORMAT_UNKNOWN, VC_NOTHING, 0, 0)),
+#endif
 };
 
 static const struct v4l2_subdev_core_ops core_ops = {
@@ -122,7 +176,7 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 	struct exynos_platform_fimc_is_module *pdata)
 {
 	struct fimc_is_core *core;
-	struct device_node *dnode;
+	struct device_node *dnode = dev->of_node;
 	int gpio_reset = 0;
 #ifdef CONFIG_OIS_USE
 	int gpio_ois_reset = 0;
@@ -131,9 +185,6 @@ static int sensor_module_3m3_power_setpin(struct device *dev,
 	int gpio_subcam_sel = 0;
 	u32 power_seq_id = 0;
 
-	FIMC_BUG(!dev);
-
-	dnode = dev->of_node;
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 	if (!core) {
 			err("core is NULL");
@@ -387,32 +438,41 @@ static int __init sensor_module_3m3_probe(struct platform_device *pdev)
 		if (IS_ENABLED(CONFIG_CAMERA_PDP)) {
 			switch (t) {
 			case VC_BUF_DATA_TYPE_SENSOR_STAT1:
-				module->vc_extra_info[t].stat_type
-					= VC_STAT_TYPE_TAIL_FOR_SW_PDAF;
-				module->vc_extra_info[t].sensor_mode
-					= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
-				module->vc_extra_info[t].max_width = 128;
-				module->vc_extra_info[t].max_height = 736;
-				module->vc_extra_info[t].max_element = 2;
+				if (!IS_ENABLED(CONFIG_SOC_EXYNOS9820) ||
+						IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_TAIL_FOR_SW_PDAF;
+					module->vc_extra_info[t].sensor_mode
+						= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+					module->vc_extra_info[t].max_width = 128;
+					module->vc_extra_info[t].max_height = 736;
+					module->vc_extra_info[t].max_element = 2;
+				}
 				break;
 			case VC_BUF_DATA_TYPE_GENERAL_STAT1:
 				/* PDP STAT0: SFR, Size: 1756(1756)Bytes */
-				module->vc_extra_info[t].stat_type
-					= VC_STAT_TYPE_PDP_1_1_PDAF_STAT0;
-				module->vc_extra_info[t].sensor_mode
-					= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
-				module->vc_extra_info[t].max_width = 1756;
-				module->vc_extra_info[t].max_height = 1;
-				module->vc_extra_info[t].max_element = 1;
+				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+						!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_1_PDAF_STAT0;
+					module->vc_extra_info[t].sensor_mode
+						= VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+					module->vc_extra_info[t].max_width = 1756;
+					module->vc_extra_info[t].max_height = 1;
+					module->vc_extra_info[t].max_element = 1;
+				}
 				break;
 			case VC_BUF_DATA_TYPE_GENERAL_STAT2:
 				/* PDP STAT1/2: DMA, Size: 17920+21504(17556+21168)Bytes */
-				module->vc_extra_info[t].stat_type
-					= VC_STAT_TYPE_PDP_1_1_PDAF_STAT1;
-				module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
-				module->vc_extra_info[t].max_width = 39424;
-				module->vc_extra_info[t].max_height = 1;
-				module->vc_extra_info[t].max_element = 1;
+				if (IS_ENABLED(CONFIG_SOC_EXYNOS9820) &&
+						!IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0)) {
+					module->vc_extra_info[t].stat_type
+						= VC_STAT_TYPE_PDP_1_1_PDAF_STAT1;
+					module->vc_extra_info[t].sensor_mode = VC_SENSOR_MODE_MSPD_GLOBAL_TAIL;
+					module->vc_extra_info[t].max_width = 39424;
+					module->vc_extra_info[t].max_height = 1;
+					module->vc_extra_info[t].max_element = 1;
+				}
 				break;
 			}
 		} else {

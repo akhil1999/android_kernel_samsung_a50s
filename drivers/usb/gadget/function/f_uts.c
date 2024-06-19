@@ -21,6 +21,9 @@
 #include <linux/err.h>
 
 #include "u_serial.h"
+#ifdef CONFIG_USB_DUN_SUPPORT
+#include "serial_uts.c"
+#endif
 
 
 /*
@@ -395,6 +398,9 @@ static int uts_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		 * that bit, we should return to that no-flow state.
 		 */
 		uts->port_handshake_bits = w_value;
+#ifdef CONFIG_USB_DUN_SUPPORT
+		uts_notify_control_line_state((unsigned long)w_value);
+#endif
 		break;
 
 	default:
@@ -573,6 +579,21 @@ static void uts_cdc_notify_complete(struct usb_ep *ep, struct usb_request *req)
 		uts_notify_serial_state(uts);
 }
 
+#ifdef CONFIG_USB_DUN_SUPPORT
+int uts_notify(void *dev, u16 state)
+{
+	struct f_uts	*uts;
+	if (dev) {
+		uts = (struct f_uts *)dev;
+		uts->serial_state = state;
+		uts_notify_serial_state(uts);
+	} else {
+		printk(KERN_DEBUG "usb: %s not ready\n", __func__);
+		return -EAGAIN;
+	}
+	return 0;
+}
+#endif
 /* connect == the TTY link is open */
 
 static void uts_connect(struct gserial *port)
@@ -701,6 +722,9 @@ uts_bind(struct usb_configuration *c, struct usb_function *f)
 		gadget_is_dualspeed(c->cdev->gadget) ? "dual" : "full",
 		uts->port.in->name, uts->port.out->name,
 		uts->notify->name);
+#ifdef CONFIG_USB_DUN_SUPPORT
+	uts_modem_register(uts);
+#endif
 	return 0;
 
 fail:
@@ -720,6 +744,9 @@ static void uts_unbind(struct usb_configuration *c, struct usb_function *f)
 	usb_free_all_descriptors(f);
 	if (uts->notify_req)
 		gs_free_req(uts->notify, uts->notify_req);
+#ifdef CONFIG_USB_DUN_SUPPORT
+	uts_modem_unregister();
+#endif
 }
 
 static void uts_free_func(struct usb_function *f)
@@ -824,4 +851,26 @@ static struct usb_function_instance *uts_alloc_instance(void)
 	return &opts->func_inst;
 }
 DECLARE_USB_FUNCTION_INIT(uts, uts_alloc_instance, uts_alloc_func);
+
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+static int __init uts_init(void)
+{
+#ifdef CONFIG_USB_DUN_SUPPORT
+	int err;
+	err = uts_modem_misc_register();
+	if (err) {
+		printk(KERN_ERR "usb: %s modem misc register is failed\n",
+				__func__);
+		return err;
+	}
+#endif
+	return usb_function_register(&utsusb_func);
+}
+static void __exit uts_exit(void)
+{
+	return usb_function_unregister(&utsusb_func);
+}
+module_init(uts_init);
+module_exit(uts_exit);
+#endif
 MODULE_LICENSE("GPL");

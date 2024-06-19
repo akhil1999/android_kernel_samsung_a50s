@@ -2603,10 +2603,19 @@ static bool sc_process_2nd_stage(struct sc_dev *sc, struct sc_ctx *ctx)
 static void sc_set_dithering(struct sc_ctx *ctx)
 {
 	struct sc_dev *sc = ctx->sc_dev;
+	struct sc_frame *s_frame = &ctx->s_frame;
+	struct sc_frame *d_frame = &ctx->d_frame;
 	unsigned int val = 0;
 
 	if (ctx->dith)
 		val = sc_dith_val(1, 1, 1);
+
+	if (sc->variant->pixfmt_10bit) {
+		if (sc_fmt_is_s10bit_yuv(s_frame->sc_fmt->pixelformat))
+			val |= SCALER_DITH_SRC_INV;
+		if (sc_fmt_is_s10bit_yuv(d_frame->sc_fmt->pixelformat))
+			val |= SCALER_DITH_DST_EN;
+	}
 
 	sc_dbg("dither value is 0x%x\n", val);
 	sc_hwset_dith(sc, val);
@@ -3733,6 +3742,67 @@ static int sc_populate_dt(struct sc_dev *sc)
 	return 0;
 }
 
+#ifdef CONFIG_EXYNOS_ITMON
+static bool sc_itmon_check(struct sc_dev *sc, char *str_itmon, char *str_attr)
+{
+	const char *name = NULL;
+
+	if (!str_itmon)
+		return false;
+
+	of_property_read_string(sc->dev->of_node, str_attr, &name);
+	if (!name)
+		return false;
+
+	if (strncmp(str_itmon, name, strlen(name)) == 0)
+		return true;
+
+	return false;
+}
+
+static int sc_itmon_notifier(struct notifier_block *nb,
+			unsigned long action, void *nb_data)
+{
+	struct sc_dev *sc = container_of(nb, struct sc_dev, itmon_nb);
+	struct itmon_notifier *itmon_info = nb_data;
+	static int called_count;
+
+	if (called_count != 0) {
+		dev_info(sc->dev, "%s is called %d times, ignore it.\n",
+				__func__, called_count);
+		return NOTIFY_DONE;
+	}
+
+	if (sc_itmon_check(sc, itmon_info->master, "itmon,master")) {
+		if (test_bit(DEV_RUN, &sc->state)) {
+			if (sc->current_ctx)
+				sc_ctx_dump(sc->current_ctx);
+			sc_hwregs_dump(sc);
+			exynos_sysmmu_show_status(sc->dev);
+		} else {
+			dev_info(sc->dev, "MSCL is not running!\n");
+		}
+		called_count++;
+	} else if (sc_itmon_check(sc, itmon_info->dest, "itmon,dest")) {
+		if (test_bit(DEV_RUN, &sc->state)) {
+			if (sc->current_ctx)
+				sc_ctx_dump(sc->current_ctx);
+			if (itmon_info->onoff) {
+				sc_hwregs_dump(sc);
+				exynos_sysmmu_show_status(sc->dev);
+			} else {
+				dev_info(sc->dev, "MSCL power is disabled!\n");
+			}
+		} else {
+			dev_info(sc->dev, "MSCL is not running!\n");
+		}
+		called_count++;
+	}
+
+	return NOTIFY_DONE;
+}
+#endif
+
 static int sc_probe(struct platform_device *pdev)
 {
 	struct sc_dev *sc;
@@ -3882,6 +3952,11 @@ static int sc_probe(struct platform_device *pdev)
 	pm_runtime_put(&pdev->dev);
 
 	iovmm_set_fault_handler(&pdev->dev, sc_sysmmu_fault_handler, sc);
+
+#ifdef CONFIG_EXYNOS_ITMON
+	sc->itmon_nb.notifier_call = sc_itmon_notifier;
+	itmon_notifier_chain_register(&sc->itmon_nb);
+#endif
 
 	dev_info(&pdev->dev,
 		"Driver probed successfully(version: %08x(%x))\n",

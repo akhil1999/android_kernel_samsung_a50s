@@ -25,6 +25,7 @@
 #include <media/v4l2-device.h>
 #include <media/v4l2-mem2mem.h>
 #include <media/v4l2-ctrls.h>
+#include <soc/samsung/exynos-itmon.h>
 
 extern int sc_log_level;
 #define sc_dbg(fmt, args...)						\
@@ -420,6 +421,7 @@ struct sc_dev {
 	u32				cfw;
 	struct sc_qos_table		*qos_table;
 	int qos_table_cnt;
+	struct notifier_block itmon_nb;
 };
 
 enum SC_CONTEXT_TYPE {

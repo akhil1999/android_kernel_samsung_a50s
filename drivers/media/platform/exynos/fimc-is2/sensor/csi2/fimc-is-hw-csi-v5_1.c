@@ -37,8 +37,13 @@ void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance)
 #endif
 }
 
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc)
+{
+	return fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_FRM_CNT_CH0 + vc]);
+}
+
 int csi_set_ppc_mode(u32 width, u32 height, u32 frame_rate, u32 mipi_speed,
-		u32 lanes, const char *conid, u32 *pixel_mode)
+		u32 lanes, u32 pd_mode, const char *conid, u32 *pixel_mode)
 {
 	struct clk *target;
 	u32 target_clk;
@@ -55,11 +60,18 @@ int csi_set_ppc_mode(u32 width, u32 height, u32 frame_rate, u32 mipi_speed,
 	target_clk = clk_get_rate(target);
 	if (!target_clk) {
 		err("%s: clk value is zero: %s\n", __func__, conid);
-		return -EINVAL;
+		ret = -EINVAL;
+		goto err_get_rate;
+	}
+
+	if (pd_mode == PD_MOD1) {
+		*pixel_mode = CSIS_PIXEL_MODE_QUAD; /* 4ppc mode */
+		info("csi pixel mode is set 4ppc by pd_mode\n");
+		goto skip_clk_check;
 	}
 
 	need_clk_by_rate = width * height * frame_rate;
-	need_clk_by_speed = mipi_speed * lanes / 10; /* TODO: only RAW10 format case */
+	need_clk_by_speed = mipi_speed * 1000000 * lanes / 10; /* TODO: only RAW10 format case */
 	info("need_clk (rate: %d)(speed: %d)\n", need_clk_by_rate, need_clk_by_speed);
 
 	/* 2ppc boundary check */
@@ -71,7 +83,16 @@ int csi_set_ppc_mode(u32 width, u32 height, u32 frame_rate, u32 mipi_speed,
 		*pixel_mode = CSIS_PIXEL_MODE_QUAD;
 	}
 
+skip_clk_check:
+err_get_rate:
+	clk_put(target);
+
 	return ret;
+}
+
+int csi_hw_get_ppc_mode(u32 __iomem *base_reg)
+{
+	return fimc_is_hw_get_field(base_reg, &csi_regs[CSIS_R_ISP_CONFIG_CH0], &csi_fields[CSIS_F_PIXEL_MODE]);
 }
 
 int csi_hw_reset(u32 __iomem *base_reg)
@@ -323,7 +344,7 @@ int csi_hw_s_config(u32 __iomem *base_reg,
 
 #if defined(CONFIG_SOC_EXYNOS9610)
 	ret = csi_set_ppc_mode(sensor_cfg->width, sensor_cfg->height, sensor_cfg->framerate,
-		sensor_cfg->mipi_speed, sensor_cfg->lanes, "UMUX_CLKCMU_CAM_BUS", &pixel_mode);
+		sensor_cfg->mipi_speed, sensor_cfg->lanes, pd_mode, "UMUX_CLKCMU_CAM_BUS", &pixel_mode);
 	if (ret) {
 		err("invalid set_ppc_mode\n");
 		goto p_err;
@@ -731,7 +752,6 @@ int csi_hw_s_dma_common_dynamic(u32 __iomem *base_reg, size_t size, unsigned int
 
 	if (GET_DMA_CH(dma_ch, 0) && GET_DMA_CH(dma_ch, 1)) {
 		matrix_num = 0;
-		sram0_split = max;
 		sram1_split = max;
 	} else if (GET_DMA_CH(dma_ch, 0) && GET_DMA_CH(dma_ch, 2)) {
 		matrix_num = 0;

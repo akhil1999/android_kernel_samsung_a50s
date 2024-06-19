@@ -198,7 +198,7 @@ static int fimc_is_hw_vra_ch1_handle_interrupt(u32 id, void *context)
 				fimc_is_hw_vra_save_debug_info(hw_ip, lib_vra, DEBUG_POINT_FRAME_START);
 				atomic_set(&hw_ip->status.Vvalid, V_VALID);
 				clear_bit(HW_CONFIG, &hw_ip->state);
-#ifdef ENABLE_VRA_FDONE_WITH_CALLBACK
+#ifdef ENABLE_REPROCESSING_FD
 				clear_bit(instance, &lib_vra->done_vra_callback_out_ready);
 				clear_bit(instance, &lib_vra->done_vra_hw_intr);
 #endif
@@ -248,20 +248,20 @@ static int fimc_is_hw_vra_ch1_handle_interrupt(u32 id, void *context)
 			if (hw_ip->cur_e_int >= hw_ip->num_buffers) {
 				atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 				fimc_is_hw_vra_save_debug_info(hw_ip, lib_vra, DEBUG_POINT_FRAME_END);
-#ifdef ENABLE_VRA_FDONE_WITH_CALLBACK
+#ifdef ENABLE_REPROCESSING_FD
 				set_bit(instance, &lib_vra->done_vra_hw_intr);
 
-				spin_lock(&lib_vra->fdone_cb_lock);
+				spin_lock(&lib_vra->reprocess_fd_lock);
 				if (test_bit(instance, &lib_vra->done_vra_hw_intr)
 					&& test_bit(instance, &lib_vra->done_vra_callback_out_ready)) {
 					clear_bit(instance, &lib_vra->done_vra_callback_out_ready);
 					clear_bit(instance, &lib_vra->done_vra_hw_intr);
-					spin_unlock(&lib_vra->fdone_cb_lock);
+					spin_unlock(&lib_vra->reprocess_fd_lock);
 
 					fimc_is_hardware_frame_done(hw_ip, NULL, -1,
 						FIMC_IS_HW_CORE_END, IS_SHOT_SUCCESS, true);
 				} else {
-					spin_unlock(&lib_vra->fdone_cb_lock);
+					spin_unlock(&lib_vra->reprocess_fd_lock);
 				}
 #else
 				fimc_is_hardware_frame_done(hw_ip, NULL, -1,
@@ -297,7 +297,7 @@ static void fimc_is_hw_vra_reset(struct fimc_is_hw_ip *hw_ip)
 	fimc_is_vra_chain1_set_clear_intr(hw_ip->regs, all_intr);
 }
 
-static int __nocfi fimc_is_hw_vra_open(struct fimc_is_hw_ip *hw_ip, u32 instance,
+static int fimc_is_hw_vra_open(struct fimc_is_hw_ip *hw_ip, u32 instance,
 	struct fimc_is_group *group)
 {
 	int ret = 0;
@@ -313,9 +313,7 @@ static int __nocfi fimc_is_hw_vra_open(struct fimc_is_hw_ip *hw_ip, u32 instance
 		return 0;
 
 	frame_manager_probe(hw_ip->framemgr, FRAMEMGR_ID_HW | (1 << hw_ip->id), "HWVRA");
-	frame_manager_probe(hw_ip->framemgr_late, FRAMEMGR_ID_HW | (1 << hw_ip->id) | 0xF000, "HWVRA LATE");
 	frame_manager_open(hw_ip->framemgr, FIMC_IS_MAX_HW_FRAME);
-	frame_manager_open(hw_ip->framemgr_late, FIMC_IS_MAX_HW_FRAME_LATE);
 
 	hw_ip->priv_info = vzalloc(sizeof(struct fimc_is_hw_vra));
 	if(!hw_ip->priv_info) {
@@ -361,7 +359,7 @@ static int __nocfi fimc_is_hw_vra_open(struct fimc_is_hw_ip *hw_ip, u32 instance
 		mserr_hw("failed to init. task(%d)", instance, hw_ip, ret);
 		goto err_vra_init_task;
 	}
-#ifdef ENABLE_VRA_FDONE_WITH_CALLBACK
+#ifdef ENABLE_REPROCESSING_FD
 		hw_vra->lib_vra.hw_ip = hw_ip;
 #endif
 
@@ -397,7 +395,6 @@ err_vra_alloc_memory:
 	hw_ip->priv_info = NULL;
 err_alloc:
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 	return ret;
 }
 
@@ -478,7 +475,6 @@ static int fimc_is_hw_vra_close(struct fimc_is_hw_ip *hw_ip, u32 instance)
 	vfree(hw_ip->priv_info);
 	hw_ip->priv_info = NULL;
 	frame_manager_close(hw_ip->framemgr);
-	frame_manager_close(hw_ip->framemgr_late);
 
 	clear_bit(HW_OPEN, &hw_ip->state);
 
@@ -1143,7 +1139,6 @@ int fimc_is_hw_vra_probe(struct fimc_is_hw_ip *hw_ip, struct fimc_is_interface *
 	hw_ip->itf  = itf;
 	hw_ip->itfc = itfc;
 	atomic_set(&hw_ip->fcount, 0);
-	hw_ip->internal_fcount = 0;
 	hw_ip->is_leader = true;
 	atomic_set(&hw_ip->status.Vvalid, V_BLANK);
 	atomic_set(&hw_ip->rsccount, 0);

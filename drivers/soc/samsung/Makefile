@@ -1,3 +1,6 @@
+
+ccflags-y := $(KBUILD_FP_SENSOR_CFLAGS)
+
 obj-$(CONFIG_ARCH_EXYNOS)       += exynos-el3_mon.o
 obj-$(CONFIG_ARCH_EXYNOS)       += exynos-smc.o
 
@@ -7,7 +10,6 @@ obj-$(CONFIG_CAL_IF)		+= cal-if/
 obj-$(CONFIG_ECT)		+= ect_parser.o
 
 obj-$(CONFIG_EXYNOS_PMU)	+= exynos-pmu.o
-obj-$(CONFIG_EPX)             += epx.o
 
 #FSYS0 TCXO
 obj-$(CONFIG_ARCH_EXYNOS)	+= exynos-fsys0-tcxo.o
@@ -63,9 +65,6 @@ obj-$(CONFIG_EXYNOS_SDM) += exynos-sdm.o
 # USI_V2
 obj-$(CONFIG_USI_V2) += usi_v2.o
 
-# secmem
-obj-$(CONFIG_ARCH_EXYNOS)       += secmem.o
-
 # HIU
 obj-$(CONFIG_EXYNOS_HIU)	+= exynos-hiu.o
 
@@ -73,13 +72,5 @@ obj-$(CONFIG_EXYNOS_HIU)	+= exynos-hiu.o
 obj-$(CONFIG_EXYNOS_PSTATE_HAFM)	+= exynos-hafm.o
 obj-$(CONFIG_EXYNOS_PSTATE_HAFM_TB)	+= exynos-hafm-tb.o
 
-# bootinfo
-obj-$(CONFIG_BOOTINFO) += bootinfo.o
-
-obj-$(CONFIG_MMI_SOC_INFO) += mmi_soc_info.o
-obj-$(CONFIG_MMI_RAM_INFO) += mmi-ram-info.o
-obj-$(CONFIG_MMI_STORAGE_INFO) += mmi_storage_info.o
-obj-$(CONFIG_MMI_UNIT_INFO) += mmi-unit-info.o
-
-# SLEEP GPIO
-obj-$(CONFIG_EXYNOS_SLEEP_GPIO)    += exynos-sleepgpio.o
+# secmem
+obj-$(CONFIG_ARCH_EXYNOS)       += secmem.o

@@ -32,17 +32,26 @@
 /*
  * PMU register offset
  */
+#define EXYNOS_PMU_WAKEUP_STAT		0x0600
 #define EXYNOS_PMU_EINT_WAKEUP_MASK	0x0650
 #define BOOT_CPU			0
 
 extern u32 exynos_eint_to_pin_num(int eint);
 #define EXYNOS_EINT_PEND(b, x)      ((b) + 0xA00 + (((x) >> 3) * 4))
 
-#define WAKEUP_STAT_SYSINT_MASK		~((1 << 31) | (1 << 0))
+#ifdef CONFIG_SEC_PM_DEBUG
+#include <linux/sec_debug.h>
+
+#define	PMU_CP_STAT		0x0038
+#define	PMU_GNSS_STAT		0x0048
+#define	PMU_WLBT_STAT		0x0058
+
+#define WAKEUP_STAT_SYSINT_MASK		~(1 << 0)
 
 struct wakeup_stat_name {
 	const char *name[32];
 };
+#endif /* CONFIG_SEC_PM_DEBUG */
 
 struct exynos_pm_info {
 	void __iomem *eint_base;		/* GPIO_ALIVE base to check wkup reason */
@@ -56,19 +65,19 @@ struct exynos_pm_info {
 	unsigned int suspend_psci_idx;		/* psci index to be used in suspend scenario */
 	unsigned int cp_call_mode_idx;		/* power mode to be used in cp_call scenario */
 	unsigned int cp_call_psci_idx;		/* psci index to be used in cp_call scenario */
+	u8 num_extra_stat;			/* Total number of extra wakeup_stat */
+	unsigned int *extra_wakeup_stat;	/* Extra wakeup stat SFRs offset */
 
 	unsigned int usbl2_suspend_available;
 	unsigned int usbl2_suspend_mode_idx;		/* power mode to be used in suspend scenario */
 	bool (*usb_is_connect)(void);
 	unsigned int conn_req_offset;
 	unsigned int prev_conn_req;		/* TCXO, PWR, MIF request status of masters */
-	unsigned int pmu_cp_stat_offset;
-	unsigned int pmu_gnss_stat_offset;
-	unsigned int pmu_wlbt_stat_offset;
-	unsigned int stat_access_mif_offset;
-	unsigned int *wakeup_stat;
-	u8 num_wakeup_stat;
+#ifdef CONFIG_SEC_PM_DEBUG
+	unsigned int *wakeup_stat;		/* wakeup stat SFRs offset */
+	u8 num_wakeup_stat;			/* Total number of wakeup_stat */
 	struct wakeup_stat_name *ws_names;	/* Names of each bits of wakeup_stat */
+#endif
 };
 static struct exynos_pm_info *pm_info;
 
@@ -120,11 +129,13 @@ static void exynos_show_wakeup_reason_eint(void)
 static void exynos_show_wakeup_registers(unsigned int wakeup_stat)
 {
 	int i, size;
+	int extra_wakeup_stat;
 
 	pr_info("WAKEUP_STAT:\n");
-	for (i = 0; i < pm_info->num_wakeup_stat; i++) {
-		exynos_pmu_read(pm_info->wakeup_stat[i], &wakeup_stat);
-		pr_info("0x%08x\n", wakeup_stat);
+	pr_info("0x%08x\n", wakeup_stat);
+	for (i = 0; i < pm_info->num_extra_stat; i++) {
+		exynos_pmu_read(pm_info->extra_wakeup_stat[i], &extra_wakeup_stat);
+		pr_info("0x%08x\n", extra_wakeup_stat);
 	}
 
 	pr_info("EINT_PEND: ");
@@ -132,6 +143,7 @@ static void exynos_show_wakeup_registers(unsigned int wakeup_stat)
 		pr_info("0x%02x ", __raw_readl(EXYNOS_EINT_PEND(pm_info->eint_base, i)));
 }
 
+#ifdef CONFIG_SEC_PM_DEBUG
 static void exynos_show_wakeup_reason_sysint(unsigned int stat,
 					struct wakeup_stat_name *ws_names)
 {
@@ -173,11 +185,14 @@ static void exynos_show_wakeup_reason_detail(unsigned int wakeup_stat)
 		exynos_show_wakeup_reason_sysint(wss, &pm_info->ws_names[i]);
 	}
 }
+#endif /* CONFIG_SEC_PM_DEBUG */
 
 static void exynos_show_wakeup_reason(bool sleep_abort)
 {
 	unsigned int wakeup_stat;
 	int i, size;
+
+	pr_info("---------- wakeup ----------\n");
 
 	if (sleep_abort) {
 		pr_info("%s early wakeup! Dumping pending registers...\n", EXYNOS_PM_PREFIX);
@@ -194,23 +209,20 @@ static void exynos_show_wakeup_reason(bool sleep_abort)
 		return ;
 	}
 
-	if (!pm_info->num_wakeup_stat)
-		return;
-
-	exynos_pmu_read(pm_info->wakeup_stat[0], &wakeup_stat);
+	exynos_pmu_read(EXYNOS_PMU_WAKEUP_STAT, &wakeup_stat);
 	exynos_show_wakeup_registers(wakeup_stat);
 
+#ifdef CONFIG_SEC_PM_DEBUG
 	exynos_show_wakeup_reason_detail(wakeup_stat);
-
+#else
 	if (wakeup_stat & WAKEUP_STAT_RTC_ALARM)
 		pr_info("%s Resume caused by RTC alarm\n", EXYNOS_PM_PREFIX);
-	else {
-		for (i = 0; i < pm_info->num_wakeup_stat; i++) {
-			exynos_pmu_read(pm_info->wakeup_stat[i], &wakeup_stat);
-			pr_info("%s Resume caused by wakeup%d_stat 0x%08x\n",
-					EXYNOS_PM_PREFIX, i + 1, wakeup_stat);
-		}
-	}
+	else if (wakeup_stat & WAKEUP_STAT_EINT)
+		exynos_show_wakeup_reason_eint();
+	else
+		pr_info("%s Resume caused by wakeup_stat 0x%08x\n",
+			EXYNOS_PM_PREFIX, wakeup_stat);
+#endif
 }
 
 #ifdef CONFIG_CPU_IDLE
@@ -291,6 +303,18 @@ static inline bool abox_is_on(void)
 
 static int exynos_pm_syscore_suspend(void)
 {
+#ifdef CONFIG_SEC_PM_DEBUG
+	unsigned int val;
+
+	if (sec_debug_get_debug_level() <= 1) {
+		exynos_pmu_read(PMU_CP_STAT, &val);
+		pr_info("CP_STAT (0x%x) = 0x%08x\n", PMU_CP_STAT, val);
+		exynos_pmu_read(PMU_GNSS_STAT, &val);
+		pr_info("GNSS_STAT (0x%x) = 0x%08x\n", PMU_GNSS_STAT, val);
+		exynos_pmu_read(PMU_WLBT_STAT, &val);
+		pr_info("WLBT_STAT (0x%x) = 0x%08x\n", PMU_WLBT_STAT, val);
+	}
+#endif
 	if (!exynos_check_cp_status()) {
 		pr_info("%s %s: sleep canceled by CP reset \n",
 					EXYNOS_PM_PREFIX, __func__);
@@ -342,21 +366,24 @@ static struct syscore_ops exynos_pm_syscore_ops = {
 	.resume		= exynos_pm_syscore_resume,
 };
 
-static int exynos_pm_read_access_mif_stat(unsigned int stat_addr)
-{
-	unsigned int stat;
-
-	exynos_pmu_read(stat_addr, &stat);
-	stat = (stat >> pm_info->stat_access_mif_offset) & 0x1;
-
-	return stat;
-}
+#ifdef CONFIG_SEC_GPIO_DVS
+extern void gpio_dvs_check_sleepgpio(void);
+#endif
 
 static int exynos_pm_enter(suspend_state_t state)
 {
 	unsigned int psci_index;
 	unsigned int prev_mif = 0, post_mif = 0;
 	unsigned int prev_req;
+
+#ifdef CONFIG_SEC_GPIO_DVS
+	/************************ Caution !!! ****************************/
+	/* This function must be located in appropriate SLEEP position
+	 * in accordance with the specification of each BB vendor.
+	 */
+	/************************ Caution !!! ****************************/
+	gpio_dvs_check_sleepgpio();
+#endif
 
 	if (pm_info->is_cp_call || pm_dbg->test_cp_call)
 		psci_index = pm_info->cp_call_psci_idx;
@@ -383,18 +410,11 @@ static int exynos_pm_enter(suspend_state_t state)
 	post_mif = acpm_get_mifdn_count();
 	pr_info("%s: post mif_count %d\n",EXYNOS_PM_PREFIX, post_mif);
 
-	if (post_mif == prev_mif) {
+	if (post_mif == prev_mif)
 		pr_info("%s: MIF blocked. prev_conn_req: 0x%x\n", EXYNOS_PM_PREFIX, pm_info->prev_conn_req);
-		pr_info("%s: cp_access_mif: 0x%x\n", EXYNOS_PM_PREFIX,
-				exynos_pm_read_access_mif_stat(pm_info->pmu_cp_stat_offset));
-		pr_info("%s: gnss_access_mif: 0x%x\n", EXYNOS_PM_PREFIX,
-				exynos_pm_read_access_mif_stat(pm_info->pmu_gnss_stat_offset));
-		pr_info("%s: wlbt_access_mif: 0x%x\n", EXYNOS_PM_PREFIX,
-				exynos_pm_read_access_mif_stat(pm_info->pmu_wlbt_stat_offset));
-	} else {
+	else
 		pr_info("%s: MIF down. cur_count: %d, acc_count: %d\n",
 				EXYNOS_PM_PREFIX, post_mif - prev_mif, post_mif);
-	}
 
 	pr_info("%s: MIF_UP history: \n", EXYNOS_PM_PREFIX);
 	acpm_get_inform();
@@ -479,6 +499,28 @@ static void __init exynos_pm_debugfs_init(void)
 }
 #endif
 
+#if defined(CONFIG_SEC_FACTORY)
+static ssize_t show_asv_info(struct device *dev,
+		struct device_attribute *attr,
+		char *buf)
+{
+	int count = 0;
+
+	/* Set asv group info to buf */
+	count += sprintf(&buf[count], "%d ", asv_ids_information(tg));
+	count += sprintf(&buf[count], "%03x ", asv_ids_information(bg));
+	count += sprintf(&buf[count], "%03x ", asv_ids_information(g3dg));
+	count += sprintf(&buf[count], "%u ", asv_ids_information(bids));
+	count += sprintf(&buf[count], "%u ", asv_ids_information(gids));
+	count += sprintf(&buf[count], "\n");
+
+	return count;
+}
+
+static DEVICE_ATTR(asv_info, 0664, show_asv_info, NULL);
+#endif /* CONFIG_SEC_FACTORY */
+
+#ifdef CONFIG_SEC_PM_DEBUG
 static void parse_dt_wakeup_stat_names(struct device_node *np)
 {
 	struct device_node *root, *child;
@@ -516,6 +558,7 @@ static void parse_dt_wakeup_stat_names(struct device_node *np)
 		idx++;
 	}
 }
+#endif /* CONFIG_SEC_PM_DEBUG */
 
 static __init int exynos_pm_drvinit(void)
 {
@@ -613,33 +656,20 @@ static __init int exynos_pm_drvinit(void)
 			}
 		}
 
+		ret = of_property_count_u32_elems(np, "extra_wakeup_stat");
+		if (!ret) {
+			pr_err("%s %s: unabled to get wakeup_stat value from DT\n",
+					EXYNOS_PM_PREFIX, __func__);
+			BUG();
+		} else {
+			pm_info->num_extra_stat = ret;
+			pm_info->extra_wakeup_stat = kzalloc(sizeof(unsigned int) * ret, GFP_KERNEL);
+			of_property_read_u32_array(np, "extra_wakeup_stat", pm_info->extra_wakeup_stat, ret);
+		}
+
 		ret = of_property_read_u32(np, "conn_req_offset", &pm_info->conn_req_offset);
 		if (ret) {
 			pr_err("%s %s: unabled to get conn_req_offset value from DT\n",
-					EXYNOS_PM_PREFIX, __func__);
-			BUG();
-		}
-		ret = of_property_read_u32(np, "pmu_cp_stat_offset", &pm_info->pmu_cp_stat_offset);
-		if (ret) {
-			pr_err("%s %s: unabled to get pmu_cp_stat_offset value from DT\n",
-					EXYNOS_PM_PREFIX, __func__);
-			BUG();
-		}
-		ret = of_property_read_u32(np, "pmu_gnss_stat_offset", &pm_info->pmu_gnss_stat_offset);
-		if (ret) {
-			pr_err("%s %s: unabled to get pmu_gnss_stat_offset value from DT\n",
-					EXYNOS_PM_PREFIX, __func__);
-			BUG();
-		}
-		ret = of_property_read_u32(np, "pmu_wlbt_stat_offset", &pm_info->pmu_wlbt_stat_offset);
-		if (ret) {
-			pr_err("%s %s: unabled to get pmu_wlbt_stat_offset value from DT\n",
-					EXYNOS_PM_PREFIX, __func__);
-			BUG();
-		}
-		ret = of_property_read_u32(np, "stat_access_mif_offset", &pm_info->stat_access_mif_offset);
-		if (ret) {
-			pr_err("%s %s: unabled to get stat_access_mif_offset value from DT\n",
 					EXYNOS_PM_PREFIX, __func__);
 			BUG();
 		}
@@ -655,7 +685,9 @@ static __init int exynos_pm_drvinit(void)
 			pm_info->wakeup_stat = kzalloc(sizeof(unsigned int) * ret, GFP_KERNEL);
 			of_property_read_u32_array(np, "wakeup_stat", pm_info->wakeup_stat, ret);
 		}
+#ifdef CONFIG_SEC_PM_DEBUG
 		parse_dt_wakeup_stat_names(np);
+#endif /* CONFIG_SEC_PM_DEBUG */
 	} else {
 		pr_err("%s %s: failed to have populated device tree\n",
 					EXYNOS_PM_PREFIX, __func__);
@@ -666,6 +698,13 @@ static __init int exynos_pm_drvinit(void)
 	register_syscore_ops(&exynos_pm_syscore_ops);
 #ifdef CONFIG_DEBUG_FS
 	exynos_pm_debugfs_init();
+#endif
+
+#if defined(CONFIG_SEC_FACTORY)
+	/* create sysfs group */
+	ret = sysfs_create_file(power_kobj, &dev_attr_asv_info.attr);
+	if (ret)
+		pr_err("%s: failed to create exynos9820 asv attribute file\n", __func__);
 #endif
 
 	return 0;

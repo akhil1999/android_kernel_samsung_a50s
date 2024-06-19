@@ -35,6 +35,11 @@ void csi_hw_phy_otp_config(u32 __iomem *base_reg, u32 instance)
 #endif
 }
 
+u32 csi_hw_g_fcount(u32 __iomem *base_reg, u32 vc)
+{
+	return fimc_is_hw_get_reg(base_reg, &csi_regs[CSIS_R_FRM_CNT_CH0 + vc]);
+}
+
 int csi_hw_reset(u32 __iomem *base_reg)
 {
 	int ret = 0;
@@ -988,11 +993,18 @@ int csi_hw_s_phy_set(struct phy *phy, u32 lanes, u32 mipi_speed,
 	 * [3]: the data rate
 	 * [4]: the settle value for the data rate
 	 */
+
 	phy_cfg[0] = 0x0502 << 16;
-	if (instance == CSI_ID_E)
-		phy_cfg[0] |= 0x0001;
+	/*
+	 * Exynos9820 EVT0 4lanes: 0x0000
+	 * Exynos9820 EVT0 2lanes: 0x0001
+	 * Other 4lanes: 0x0002
+	 * Other 2lanes: 0x0003
+	 */
+	if (IS_ENABLED(CONFIG_SOC_EXYNOS9820_EVT0))
+		phy_cfg[0] |= (instance == CSI_ID_E ? 0x0001 :  0x0000);
 	else
-		phy_cfg[0] |= 0x0000;
+		phy_cfg[0] |= (instance == CSI_ID_E ? 0x0003 :  0x0002);
 
 	phy_cfg[1] = 0xD << 16;
 	if ((instance == CSI_ID_A) || (instance == CSI_ID_C))

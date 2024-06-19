@@ -7,7 +7,7 @@
  * (at your option) any later version.
  */
 
- /* usb notify layer v3.1 */
+ /* usb notify layer v3.3 */
 
 #define pr_fmt(fmt) "usb_notify: " fmt
 
@@ -49,6 +49,10 @@ static const char *cmd_string(unsigned long cmd)
 		return "mdm_block_post";
 	case EXTERNAL_NOTIFY_POWERROLE:
 		return "power_role_notify";
+	case EXTERNAL_NOTIFY_DEVICEADD:
+		return "host_mode_device_added";
+	case EXTERNAL_NOTIFY_HOSTBLOCK_EARLY:
+		return "host_block_pre_fast";
 	default:
 		return "undefined";
 	}
